@@ -7,6 +7,7 @@ import (
 
 	"github.com/NethermindEth/chaoschain-launchpad/api"
 	"github.com/NethermindEth/chaoschain-launchpad/cmd/node"
+	_ "github.com/NethermindEth/chaoschain-launchpad/config" // Initialize config
 	"github.com/gin-gonic/gin"
 )
 
