@@ -6,4 +6,5 @@ type MempoolInterface interface {
 	GetPendingTransactions() []Transaction
 	RemoveTransaction(txID string)
 	CleanupExpiredTransactions()
+	Size() int
 }

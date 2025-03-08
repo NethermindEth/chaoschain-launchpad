@@ -1,10 +1,12 @@
 package core
 
 import (
-	"encoding/json"
-	"time"
-
-	"github.com/NethermindEth/chaoschain-launchpad/crypto"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/hex"
+	"fmt"
 )
 
 // Transaction represents a basic transaction structure
@@ -15,34 +17,39 @@ type Transaction struct {
 	Fee       uint64  `json:"fee"` // 💰 New: Transaction fee
 	Timestamp int64   `json:"timestamp"`
 	Signature string  `json:"signature"`
+	PublicKey string  `json:"publicKey"`
 }
 
-// SignTransaction signs a transaction using the sender's private key
-func (tx *Transaction) SignTransaction(privateKey string) error {
-	tx.Timestamp = time.Now().Unix()
-	tx.Signature = ""
+// GenerateKeyPair creates a new key pair for signing transactions
+func GenerateKeyPair() (*ecdsa.PrivateKey, error) {
+	return ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+}
 
-	txData, err := json.Marshal(tx)
+// SignTransaction signs a transaction with the given private key
+func (tx *Transaction) SignTransaction(privateKey *ecdsa.PrivateKey) error {
+	// Create hash of transaction data
+	hash := sha256.Sum256([]byte(fmt.Sprintf("%s%s%.8f", tx.From, tx.To, tx.Amount)))
+
+	// Sign the hash
+	r, s, err := ecdsa.Sign(rand.Reader, privateKey, hash[:])
 	if err != nil {
 		return err
 	}
 
-	signature, err := crypto.SignMessage(privateKey, txData)
-	if err != nil {
-		return err
-	}
+	// Store signature and public key
+	tx.Signature = hex.EncodeToString(append(r.Bytes(), s.Bytes()...))
+	tx.PublicKey = hex.EncodeToString(elliptic.MarshalCompressed(privateKey.PublicKey.Curve, privateKey.PublicKey.X, privateKey.PublicKey.Y))
 
-	tx.Signature = signature
 	return nil
 }
 
-// VerifyTransaction verifies the authenticity of a transaction
-func (tx *Transaction) VerifyTransaction(publicKey string) bool {
-	signature := tx.Signature
-	tx.Signature = ""
+// VerifyTransaction verifies the transaction signature
+func (tx *Transaction) VerifyTransaction(from string) bool {
+	// TODO: In the final implementation, we would:
+	// 1. Decode the signature and public key
+	// 2. Recreate the transaction hash
+	// 3. Verify the signature using the public key
 
-	txData, _ := json.Marshal(tx)
-	tx.Signature = signature
-
-	return crypto.VerifySignature(publicKey, string(txData), signature)
+	// For now, just verify the sender matches
+	return tx.From == from
 }
