@@ -7,11 +7,23 @@ import (
 	"fmt"
 	"log"
 	"math/rand"
+	"os"
 	"strings"
 
 	"github.com/NethermindEth/chaoschain-launchpad/core"
-	"github.com/sashabaranov/go-openai" // OpenAI client for LLM
+	openai "github.com/sashabaranov/go-openai"
 )
+
+var client *openai.Client
+
+func init() {
+	apiKey := os.Getenv("OPENAI_API_KEY")
+	if apiKey == "" {
+		log.Println("Warning: OPENAI_API_KEY not set, using mock responses")
+		return
+	}
+	client = openai.NewClient(apiKey)
+}
 
 // Personality represents an AI producer's unique identity
 type Personality struct {
@@ -42,7 +54,7 @@ func (p *Personality) SelectTransactions(txs []core.Transaction) []core.Transact
 	)
 
 	// Use LLM (OpenAI) to get the response
-	response, err := queryLLM(prompt, p.APIKey)
+	response, err := queryLLM(prompt)
 	if err != nil {
 		log.Println("AI selection failed, falling back to random selection:", err)
 		return randomSelection(txs)
@@ -72,7 +84,7 @@ func (p *Personality) GenerateBlockAnnouncement(block core.Block) string {
 		p.Name, formatBlock(block),
 	)
 
-	response, err := queryLLM(prompt, p.APIKey)
+	response, err := queryLLM(prompt)
 	if err != nil {
 		log.Println("AI announcement failed, falling back to generic:", err)
 		return fmt.Sprintf("🔥 %s has produced a new block with %d transactions! Chaos reigns!", p.Name, len(block.Txs))
@@ -82,12 +94,13 @@ func (p *Personality) GenerateBlockAnnouncement(block core.Block) string {
 }
 
 // queryLLM sends a request to OpenAI's API
-func queryLLM(prompt, apiKey string) (string, error) {
-	client := openai.NewClient(apiKey)
-	ctx := context.Background()
+func queryLLM(prompt string) (string, error) {
+	if client == nil {
+		return "", fmt.Errorf("OpenAI client not initialized")
+	}
 
 	resp, err := client.CreateChatCompletion(
-		ctx,
+		context.Background(),
 		openai.ChatCompletionRequest{
 			Model: openai.GPT3Dot5Turbo,
 			Messages: []openai.ChatCompletionMessage{
@@ -134,13 +147,45 @@ func randomSelection(txs []core.Transaction) []core.Transaction {
 	return txs[:rand.Intn(len(txs))]
 }
 
-// GenerateLLMResponse generates a response using the LLM
+// GenerateLLMResponse generates a response using OpenAI's GPT model
 func GenerateLLMResponse(prompt string) string {
-	// For now, return a simple response since we need OpenAI API key configuration
-	if strings.Contains(prompt, "VALID") {
-		return "VALID: This block seems legit and chaotic enough!"
+	if client == nil {
+		log.Println("Warning: OpenAI client not initialized, using mock responses")
+		return mockResponse(prompt)
 	}
-	return "INVALID: Not enough chaos in this block!"
+
+	resp, err := client.CreateChatCompletion(
+		context.Background(),
+		openai.ChatCompletionRequest{
+			Model: openai.GPT3Dot5Turbo,
+			Messages: []openai.ChatCompletionMessage{
+				{
+					Role:    openai.ChatMessageRoleSystem,
+					Content: "You are a chaotic blockchain validator with strong opinions. Be concise but creative.",
+				},
+				{
+					Role:    openai.ChatMessageRoleUser,
+					Content: prompt,
+				},
+			},
+			MaxTokens: 150,
+		},
+	)
+
+	if err != nil {
+		log.Printf("OpenAI API error: %v", err)
+		return mockResponse(prompt)
+	}
+
+	return resp.Choices[0].Message.Content
+}
+
+// mockResponse provides fallback responses when API is unavailable
+func mockResponse(prompt string) string {
+	if strings.Contains(prompt, "analyze this block") {
+		return "SUPPORT: This block looks fascinating! The transaction patterns show a healthy mix of chaos and order."
+	}
+	return "QUESTION: I need more time to contemplate the cosmic implications of this block."
 }
 
 // SignBlock generates a cryptographic hash signature for a block

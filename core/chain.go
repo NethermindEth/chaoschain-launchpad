@@ -72,7 +72,7 @@ func GetBlockByHeight(height int) (Block, bool) {
 	return defaultChain.Blocks[height], true
 }
 
-// CreateBlock creates a new block with pending transactions from mempool
+// CreateBlock creates a new block proposal (doesn't add to chain)
 func (bc *Blockchain) CreateBlock() (*Block, error) {
 	if len(bc.Blocks) == 0 {
 		return nil, fmt.Errorf("blockchain not initialized")
@@ -87,7 +87,7 @@ func (bc *Blockchain) CreateBlock() (*Block, error) {
 	}
 
 	// Create new block
-	newBlock := Block{
+	newBlock := &Block{
 		Height:    lastBlock.Height + 1,
 		PrevHash:  lastBlock.Hash(),
 		Txs:       pendingTxs,
@@ -95,15 +95,7 @@ func (bc *Blockchain) CreateBlock() (*Block, error) {
 		Signature: "temp", // TODO: Add proper block signing
 	}
 
-	// Add block to chain
-	if err := bc.AddBlock(newBlock); err != nil {
-		return nil, err
-	}
-
-	// Clear processed transactions from mempool
-	bc.Mempool.CleanupExpiredTransactions()
-
-	return &newBlock, nil
+	return newBlock, nil
 }
 
 // ProcessTransaction validates and adds a transaction to the mempool

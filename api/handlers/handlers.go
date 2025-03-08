@@ -5,12 +5,14 @@ import (
 	"net/http"
 	"strconv"
 	"sync"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 
 	"github.com/NethermindEth/chaoschain-launchpad/ai"
 	"github.com/NethermindEth/chaoschain-launchpad/cmd/node"
+	"github.com/NethermindEth/chaoschain-launchpad/consensus"
 	"github.com/NethermindEth/chaoschain-launchpad/core"
 	"github.com/NethermindEth/chaoschain-launchpad/mempool"
 	"github.com/NethermindEth/chaoschain-launchpad/p2p"
@@ -249,8 +251,11 @@ func UpdateRelationship(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": "Relationship updated successfully"})
 }
 
-// ProposeBlock creates a new block from pending transactions
+// ProposeBlock creates a new block and starts consensus
 func ProposeBlock(c *gin.Context) {
+	// Check if client wants to wait for consensus
+	waitForConsensus := c.DefaultQuery("wait", "false") == "true"
+
 	bc := core.GetBlockchain()
 	block, err := bc.CreateBlock()
 	if err != nil {
@@ -258,8 +263,38 @@ func ProposeBlock(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"message": "Block created successfully",
-		"block":   block,
-	})
+	// Start consensus process
+	cm := consensus.GetConsensusManager()
+	if err := cm.ProposeBlock(block); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Failed to start consensus: " + err.Error()})
+		return
+	}
+
+	if !waitForConsensus {
+		c.JSON(http.StatusOK, gin.H{
+			"message": "Block proposed successfully, consensus started",
+			"block":   block,
+		})
+		return
+	}
+
+	// Wait for consensus completion
+	result := make(chan consensus.ConsensusResult)
+	cm.SubscribeResult(int64(block.Height), result)
+
+	select {
+	case consensusResult := <-result:
+		c.JSON(http.StatusOK, gin.H{
+			"message":  "Consensus completed",
+			"block":    block,
+			"accepted": consensusResult.State == consensus.Accepted,
+			"support":  consensusResult.Support,
+			"oppose":   consensusResult.Oppose,
+		})
+	case <-time.After(35 * time.Second): // Slightly longer than DiscussionTimeout
+		c.JSON(http.StatusGatewayTimeout, gin.H{
+			"error": "Consensus timed out",
+			"block": block,
+		})
+	}
 }
