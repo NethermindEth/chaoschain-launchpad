@@ -13,6 +13,7 @@ import (
 type Producer struct {
 	Mempool     *mempool.Mempool
 	Personality ai.Personality
+	LastBlock   *core.Block // Keeps track of last block for chaining
 }
 
 // NewProducer initializes a block producer with AI personality
@@ -20,11 +21,20 @@ func NewProducer(mp *mempool.Mempool, personality ai.Personality) *Producer {
 	return &Producer{
 		Mempool:     mp,
 		Personality: personality,
+		LastBlock:   nil, // No previous block at the start
 	}
 }
 
 // ProduceBlock uses AI to select transactions and create a block
 func (p *Producer) ProduceBlock() core.Block {
+	// Get previous block hash (default to "genesis" if no previous block)
+	prevHash := "genesis"
+	height := 1
+	if p.LastBlock != nil {
+		prevHash = p.LastBlock.Hash()
+		height = p.LastBlock.Height + 1
+	}
+
 	// Get transactions from the mempool
 	txs := p.Mempool.GetPendingTransactions()
 
@@ -33,11 +43,15 @@ func (p *Producer) ProduceBlock() core.Block {
 
 	// Create a new block
 	block := core.Block{
-		Height:    0, // Increment height later
-		PrevHash:  "previous-block-hash",
+		Height:    height,
+		PrevHash:  prevHash,
 		Txs:       selectedTxs,
 		Timestamp: time.Now().Unix(),
+		Signature: "", // TODO: Implement AI-based cryptographic signing
 	}
+
+	// AI Generates a signature for the block (to be verified by validators)
+	block.Signature = p.Personality.SignBlock(block)
 
 	// Remove transactions from mempool
 	for _, tx := range selectedTxs {
@@ -47,8 +61,11 @@ func (p *Producer) ProduceBlock() core.Block {
 	// Generate AI-powered block announcement
 	announcement := p.Personality.GenerateBlockAnnouncement(block)
 
-	log.Println("New block created with", len(selectedTxs), "transactions")
-	log.Println("AI Announcement:", announcement)
+	log.Printf("🔷 New Block Created (Height: %d, Txns: %d)", block.Height, len(selectedTxs))
+	log.Printf("📢 AI Announcement: %s", announcement)
+
+	// Store the last created block
+	p.LastBlock = &block
 
 	return block
 }

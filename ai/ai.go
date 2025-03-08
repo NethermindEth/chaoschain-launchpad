@@ -2,6 +2,8 @@ package ai
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"log"
 	"math/rand"
@@ -139,4 +141,14 @@ func GenerateLLMResponse(prompt string) string {
 		return "VALID: This block seems legit and chaotic enough!"
 	}
 	return "INVALID: Not enough chaos in this block!"
+}
+
+// SignBlock generates a cryptographic hash signature for a block
+func (p *Personality) SignBlock(block core.Block) string {
+	// Concatenate important block fields
+	blockData := fmt.Sprintf("%d:%s:%d", block.Height, block.PrevHash, block.Timestamp)
+
+	// Generate SHA-256 hash as a simple signature
+	hash := sha256.Sum256([]byte(blockData))
+	return hex.EncodeToString(hash[:])
 }

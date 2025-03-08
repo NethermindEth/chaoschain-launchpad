@@ -14,12 +14,19 @@ type Mempool struct {
 	expirationSec int64 // Transactions expire after X seconds
 }
 
-// NewMempool initializes a mempool
-func NewMempool(expirationSec int64) *Mempool {
-	return &Mempool{
+var defaultMempool *Mempool
+
+// Initialize mempool separately
+func InitMempool(expirationSec int64) {
+	defaultMempool = &Mempool{
 		transactions:  make(map[string]core.Transaction),
 		expirationSec: expirationSec,
 	}
+}
+
+// GetMempool returns the default mempool instance
+func GetMempool() core.MempoolInterface {
+	return defaultMempool
 }
 
 // AddTransaction adds a new transaction to the mempool if valid
@@ -32,7 +39,6 @@ func (mp *Mempool) AddTransaction(tx core.Transaction) bool {
 		return false
 	}
 
-	// Add transaction
 	mp.transactions[tx.Signature] = tx
 	return true
 }

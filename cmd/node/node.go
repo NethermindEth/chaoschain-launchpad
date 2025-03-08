@@ -8,7 +8,7 @@ import (
 )
 
 func main() {
-	mp := mempool.NewMempool(60) // Transactions expire in 60 seconds
+	mp := mempool.GetMempool() // Transactions expire in 60 seconds
 
 	// Run cleanup every 10 seconds
 	go func() {

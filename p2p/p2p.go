@@ -22,6 +22,13 @@ type Node struct {
 	subscribers map[string][]func([]byte)
 }
 
+var defaultNode = NewNode()
+
+// GetP2PNode returns the default P2P node instance
+func GetP2PNode() *Node {
+	return defaultNode
+}
+
 // NewNode initializes a new P2P network node
 func NewNode() *Node {
 	return &Node{

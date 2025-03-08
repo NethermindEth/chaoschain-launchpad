@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"strings"
+	"sync"
 
 	"github.com/NethermindEth/chaoschain-launchpad/ai"
 	"github.com/NethermindEth/chaoschain-launchpad/core"
@@ -12,6 +13,7 @@ import (
 
 // Validator represents an AI-based validator with personality and network access
 type Validator struct {
+	ID            string
 	Name          string
 	Traits        []string
 	Style         string
@@ -22,9 +24,15 @@ type Validator struct {
 	P2PNode       *p2p.Node          // P2P node for network communication
 }
 
+var (
+	validators      = make(map[string]*Validator)
+	validatorsMutex = sync.RWMutex{}
+)
+
 // NewValidator initializes a new Validator with a unique personality
-func NewValidator(name string, traits []string, style string, influences []string, p2pNode *p2p.Node) *Validator {
-	return &Validator{
+func NewValidator(id string, name string, traits []string, style string, influences []string, p2pNode *p2p.Node) *Validator {
+	validator := &Validator{
+		ID:            id,
 		Name:          name,
 		Traits:        traits,
 		Style:         style,
@@ -34,6 +42,32 @@ func NewValidator(name string, traits []string, style string, influences []strin
 		CurrentPolicy: "Follow your heart and trust your vibes",
 		P2PNode:       p2pNode,
 	}
+
+	// Store validator in the global map
+	validatorsMutex.Lock()
+	validators[id] = validator
+	validatorsMutex.Unlock()
+
+	return validator
+}
+
+// GetAllValidators returns a list of all registered validators
+func GetAllValidators() []Validator {
+	validatorsMutex.RLock()
+	defer validatorsMutex.RUnlock()
+
+	var result []Validator
+	for _, v := range validators {
+		result = append(result, *v)
+	}
+	return result
+}
+
+// GetValidatorByID returns a validator by its ID
+func GetValidatorByID(id string) *Validator {
+	validatorsMutex.RLock()
+	defer validatorsMutex.RUnlock()
+	return validators[id]
 }
 
 // ListenForBlocks listens for incoming block proposals from the network

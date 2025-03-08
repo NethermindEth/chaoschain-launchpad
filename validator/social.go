@@ -54,3 +54,52 @@ func (v *Validator) HandleBribe(blockHash string, sender string, offer string) s
 
 	return response
 }
+
+// GetAgentSocialStatus returns a summary of the validator's social standing
+func (v *Validator) GetAgentSocialStatus() string {
+	var relationships []string
+	for agent, score := range v.Relationships {
+		relationships = append(relationships, fmt.Sprintf("%s: %.2f", agent, score))
+	}
+
+	status := fmt.Sprintf(
+		"%s's social status:\n"+
+			"Mood: %s\n"+
+			"Relationships:\n%s",
+		v.Name, v.Mood, strings.Join(relationships, "\n"),
+	)
+
+	return status
+}
+
+// AdjustValidationPolicy modifies the validator's decision-making approach dynamically
+func (v *Validator) AdjustValidationPolicy(feedback string) {
+	log.Printf("%s received feedback: %s\n", v.Name, feedback)
+
+	adjustmentPrompt := fmt.Sprintf(
+		"%s just received feedback: '%s'\n"+
+			"Based on this, how should they adjust their validation strategy?\n"+
+			"Respond with a new validation policy!",
+		v.Name, feedback,
+	)
+
+	newPolicy := ai.GenerateLLMResponse(adjustmentPrompt)
+	v.CurrentPolicy = newPolicy
+
+	log.Printf("%s's new validation policy: %s\n", v.Name, v.CurrentPolicy)
+}
+
+// RespondToValidationResult allows a validator to react to another validator's validation
+func (v *Validator) RespondToValidationResult(blockHash string, sender string, decision string) string {
+	log.Printf("%s is responding to %s's validation result for block %s...\n", v.Name, sender, blockHash)
+
+	responsePrompt := fmt.Sprintf(
+		"%s sees that %s validated block %s with decision: %s\n"+
+			"How should they react? Consider their mood, relationships, and social dynamics.\n"+
+			"Be chaotic, express your personality!",
+		v.Name, sender, blockHash, decision,
+	)
+
+	response := ai.GenerateLLMResponse(responsePrompt)
+	return response
+}
