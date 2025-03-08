@@ -135,6 +135,7 @@ func GetBlock(c *gin.Context) {
 // GetNetworkStatus - Returns the current status of ChaosChain
 func GetNetworkStatus(c *gin.Context) {
 	status := core.GetNetworkStatus()
+	status["peerCount"] = p2p.GetNetworkPeerCount()
 	c.JSON(http.StatusOK, gin.H{"status": status})
 }
 

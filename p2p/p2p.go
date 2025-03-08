@@ -23,7 +23,7 @@ type Node struct {
 	port        int
 }
 
-var defaultNode = NewNode()
+var defaultNode = NewNode(8080)
 
 // GetP2PNode returns the default P2P node instance
 func GetP2PNode() *Node {
@@ -31,11 +31,11 @@ func GetP2PNode() *Node {
 }
 
 // NewNode initializes a new P2P network node
-func NewNode() *Node {
+func NewNode(port int) *Node {
 	return &Node{
 		Peers:       make(map[string]*Peer),
 		subscribers: make(map[string][]func([]byte)),
-		port:        0,
+		port:        port,
 	}
 }
 
@@ -72,21 +72,22 @@ const (
 
 // ConnectToPeer connects to a peer at a given address
 func (n *Node) ConnectToPeer(address string) {
+	myAddr := fmt.Sprintf("localhost:%d", n.port)
+
+	// Don't connect to self
+	if address == myAddr {
+		return
+	}
+
 	// Don't connect if we already have this peer
 	n.mu.Lock()
 	if _, exists := n.Peers[address]; exists {
 		n.mu.Unlock()
 		return
 	}
-
-	// Don't connect to self
-	if fmt.Sprintf("localhost:%d", n.port) == address {
-		n.mu.Unlock()
-		return
-	}
 	n.mu.Unlock()
 
-	log.Printf("Attempting to connect to peer at %s", address)
+	log.Printf("Node %s attempting to connect to peer at %s", myAddr, address)
 	conn, err := net.Dial("tcp", address)
 	if err != nil {
 		log.Printf("Failed to connect to peer %s: %v", address, err)
@@ -98,24 +99,37 @@ func (n *Node) ConnectToPeer(address string) {
 	n.Peers[address] = peer
 	n.mu.Unlock()
 
-	// Request peer list from new connection
-	n.BroadcastMessage(Message{
-		Type: "GET_PEERS",
-		Data: fmt.Sprintf("localhost:%d", n.port),
-	})
-
 	go n.listenToPeer(peer)
-	log.Printf("Connected to peer: %s\n", address)
+	log.Printf("Node %s connected to peer: %s\n", myAddr, address)
+}
+
+// Checks if a port is ephemeral
+func isEphemeralPort(port int) bool {
+	return port >= 49152 && port <= 65535 // Typical ephemeral port range
 }
 
 // handleConnection handles incoming peer connections
 func (p *Node) handleConnection(conn net.Conn) {
-	peer := &Peer{Address: conn.RemoteAddr().String(), Conn: conn}
+	myAddr := fmt.Sprintf("localhost:%d", p.port)
+
+	// Extract port from remote address and create localhost address
+	_, portStr, _ := net.SplitHostPort(conn.RemoteAddr().String())
+	peerAddr := fmt.Sprintf("localhost:%s", portStr)
+
+	// Only accept connection if we don't have this peer and it's not ourselves
 	p.mu.Lock()
-	p.Peers[peer.Address] = peer
+	if _, exists := p.Peers[peerAddr]; exists || peerAddr == myAddr {
+		p.mu.Unlock()
+		conn.Close()
+		return
+	}
+
+	peer := &Peer{Address: peerAddr, Conn: conn}
+	p.Peers[peerAddr] = peer
 	p.mu.Unlock()
 
 	go p.listenToPeer(peer)
+	log.Printf("Node %s accepted connection from: %s\n", myAddr, peerAddr)
 }
 
 // listenToPeer listens for messages from a peer
