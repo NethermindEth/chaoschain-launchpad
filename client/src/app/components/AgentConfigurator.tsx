@@ -1,7 +1,7 @@
 "use client";
 
+import React, { useState } from "react";
 import { Agent } from "@/types/agent";
-import { useState } from "react";
 
 const ELIZA_SERVER = "http://127.0.0.1:3002";
 
@@ -21,7 +21,6 @@ export default function AgentConfigurator() {
     postExamples: [],
     modelProvider: "openai",
   });
-
   const [modalField, setModalField] = useState<
     "bio" | "lore" | "style" | "messageExamples" | null
   >(null);
@@ -29,18 +28,21 @@ export default function AgentConfigurator() {
   const [modalValues, setModalValues] = useState<string[]>([]);
   const [messageExamplesInput, setMessageExamplesInput] = useState<string>("");
 
-  const openModal = (field: "bio" | "lore" | "style" | "messageExamples") => {
+  const openModal = (
+    field: "bio" | "lore" | "style" | "messageExamples"
+  ) => {
     setModalField(field);
-    setModalValues(
-      field === "style"
-        ? currentAgent.style?.all || []
-        : (currentAgent[field] as string[]) || []
-    );
-    setMessageExamplesInput(
-      field === "messageExamples"
-        ? JSON.stringify(currentAgent.messageExamples, null, 2)
-        : ""
-    );
+    if (field === "style") {
+      setModalValues(currentAgent.style?.all || []);
+    } else {
+      const arr = currentAgent[field] as string[] | undefined;
+      setModalValues(arr || []);
+    }
+    if (field === "messageExamples") {
+      setMessageExamplesInput(
+        JSON.stringify(currentAgent.messageExamples, null, 2)
+      );
+    }
   };
 
   const closeModal = () => {
@@ -93,8 +95,7 @@ export default function AgentConfigurator() {
   };
 
   const launchChaosChain = async () => {
-    setLoading(true); // Start loading before the API calls
-
+    setLoading(true);
     try {
       const launchPromises = agents.map(async (agent) => {
         try {
@@ -115,117 +116,148 @@ export default function AgentConfigurator() {
         }
       });
 
-      await Promise.all(launchPromises); // Wait for all API calls to finish
-
-      alert("All the Eliza agents successfully registered!");
+      await Promise.all(launchPromises);
+      alert("All agents launched successfully!");
     } catch (error) {
-      console.error("Error launching ChaosChain:", error);
+      console.error("Error launching agents:", error);
     } finally {
-      setLoading(false); // Stop loading once all requests are done
+      setLoading(false);
     }
   };
 
   return (
-    <div className="w-full h-screen flex flex-col items-center justify-start bg-white p-10">
-      <h2 className="text-3xl font-bold text-gray-900 mb-6">
-        Configure Agents
-      </h2>
+    <div className="min-h-screen bg-gradient-to-r from-blue-50 to-purple-50 p-8">
+      {/* Header Section */}
+      <header className="max-w-4xl mx-auto text-center mb-10">
+        <h1 className="text-5xl font-extrabold text-gray-800">
+          ChaosChain Agent Configurator
+        </h1>
+        <p className="text-lg text-gray-600 mt-4">
+          Create and manage your agents with ease. Fill in the details and launch them into action!
+        </p>
+      </header>
 
-      {/* Input Fields */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-4">
-        <input
-          type="text"
-          placeholder="Agent Name"
-          value={currentAgent.name || ""}
-          onChange={(e) =>
-            setCurrentAgent({ ...currentAgent, name: e.target.value })
-          }
-          className="p-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-indigo-500"
-        />
-
-        {/* Bio, Lore, Style, MessageExamples as Button-based Modals */}
-        {["bio", "lore", "style", "messageExamples"].map((field) => (
-          <button
-            key={field}
-            onClick={() =>
-              openModal(field as "bio" | "lore" | "style" | "messageExamples")
+      {/* Main Content Panels */}
+      <div className="max-w-7xl mx-auto grid grid-cols-1 md:grid-cols-2 gap-8">
+        {/* Form Panel */}
+        <div className="bg-white p-6 rounded-lg shadow-lg">
+          <h2 className="text-2xl font-bold text-gray-700 mb-4">
+            Create New Agent
+          </h2>
+          <input
+            type="text"
+            placeholder="Agent Name"
+            value={currentAgent.name || ""}
+            onChange={(e) =>
+              setCurrentAgent({ ...currentAgent, name: e.target.value })
             }
-            className="px-4 py-2 bg-gray-300 text-black rounded-md hover:bg-gray-400 transition"
-          >
-            {field.charAt(0).toUpperCase() + field.slice(1)} (
-            {(currentAgent[field as keyof Agent] as string[])?.length || 0})
-          </button>
-        ))}
+            className="w-full p-3 border rounded-md mb-4 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+          />
 
-        {/* Add agent button */}
-        <button
-          onClick={addAgent}
-          className="px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 transition"
-        >
-          Add Agent
-        </button>
-      </div>
-
-      {/* Agents Display */}
-      <div className="flex flex-wrap items-center mt-6 space-x-4">
-        {agents.map((agent) => (
-          <div
-            key={agent.id}
-            className="relative bg-gray-100 p-4 rounded-md shadow-md w-60"
-          >
-            <h3 className="text-lg font-semibold">{agent.name}</h3>
-            <p className="text-sm text-gray-700">
-              <strong>Bio:</strong> {agent.bio.join(", ")}
-            </p>
-            <p className="text-sm text-gray-700">
-              <strong>Lore:</strong> {agent.lore.join(", ")}
-            </p>
-            <p className="text-sm text-gray-700">
-              <strong>Style:</strong> {agent.style.all.join(", ")}
-            </p>
-            <button
-              onClick={() => removeAgent(agent.id)}
-              className="absolute -top-2 -right-2 text-xs bg-red-500 text-white px-2 py-1 rounded-full"
-            >
-              ✖
-            </button>
+          {/* Modals for additional agent details */}
+          <div className="grid grid-cols-2 gap-4 mb-4">
+            {["bio", "lore", "style", "messageExamples"].map((field) => (
+              <button
+                key={field}
+                onClick={() =>
+                  openModal(
+                    field as "bio" | "lore" | "style" | "messageExamples"
+                  )
+                }
+                className="py-2 px-3 bg-gray-100 border border-gray-300 rounded-md text-gray-700 shadow-sm hover:bg-indigo-100 transition"
+              >
+                {field.charAt(0).toUpperCase() + field.slice(1)}
+                <span className="ml-1 text-sm font-medium">
+                  ({(currentAgent[field as keyof Agent] as string[])?.length || 0})
+                </span>
+              </button>
+            ))}
           </div>
-        ))}
+
+          <button
+            onClick={addAgent}
+            className="w-full py-3 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 transition"
+          >
+            Add Agent
+          </button>
+        </div>
+
+        {/* Agents List Panel */}
+        <div className="bg-white p-6 rounded-lg shadow-lg">
+          <h2 className="text-2xl font-bold text-gray-700 mb-4">
+            Agents List
+          </h2>
+          {agents.length === 0 ? (
+            <p className="text-gray-500">
+              No agents added yet. Please add an agent.
+            </p>
+          ) : (
+            <div className="space-y-4 max-h-96 overflow-y-auto pr-2">
+              {agents.map((agent) => (
+                <div
+                  key={agent.id}
+                  className="relative p-4 bg-gray-50 rounded-md shadow"
+                >
+                  <h3 className="text-xl font-semibold text-gray-800 mb-2">
+                    {agent.name}
+                  </h3>
+                  <p className="text-sm text-gray-600 mb-1">
+                    <strong>Bio:</strong> {agent.bio.join(", ")}
+                  </p>
+                  <p className="text-sm text-gray-600 mb-1">
+                    <strong>Lore:</strong> {agent.lore.join(", ")}
+                  </p>
+                  <p className="text-sm text-gray-600">
+                    <strong>Style:</strong>{" "}
+                    {(agent.style as { all: string[] }).all.join(", ")}
+                  </p>
+                  <button
+                    onClick={() => removeAgent(agent.id)}
+                    className="absolute top-2 right-2 text-sm bg-red-500 text-white rounded-full px-2 py-1 hover:bg-red-600 transition"
+                  >
+                    ✖
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Launch Button */}
-      <div className="mt-6">
+      <div className="max-w-4xl mx-auto mt-10">
         <button
           onClick={launchChaosChain}
-          className="w-full p-3 bg-green-600 text-white font-bold rounded-md hover:bg-green-700 transition"
+          className="w-full py-4 bg-green-600 text-white font-bold rounded-md hover:bg-green-700 shadow-lg transition"
         >
           {loading ? "Launching..." : "Launch ChaosChain"}
         </button>
       </div>
 
-      {/* MODAL for Bio, Lore, Style, and Message Examples */}
+      {/* Modal for editing additional fields */}
       {modalField && (
-        <div className="fixed inset-0 flex items-center justify-center bg-black bg-opacity-50">
-          <div className="bg-white p-6 rounded-lg shadow-lg w-1/2">
-            <h3 className="text-xl font-semibold mb-4">Edit {modalField}</h3>
+        <div className="fixed inset-0 flex items-center justify-center bg-black bg-opacity-50 z-50">
+          <div className="bg-white p-8 rounded-xl shadow-2xl w-full max-w-md">
+            <h3 className="text-2xl font-semibold mb-6">
+              Edit {modalField}
+            </h3>
 
-            {/* Special case for messageExamples (JSON Input) */}
             {modalField === "messageExamples" ? (
               <textarea
                 placeholder="Enter JSON Array"
                 value={messageExamplesInput}
                 onChange={(e) => setMessageExamplesInput(e.target.value)}
-                className="w-full p-2 border border-gray-300 rounded-md h-24"
+                className="w-full p-3 border border-gray-300 rounded-md h-28 focus:outline-none focus:ring-2 focus:ring-indigo-500 transition"
               ></textarea>
             ) : (
               <>
-                <div className="flex space-x-2">
+                <div className="flex space-x-3 mb-4">
                   <input
                     type="text"
                     placeholder={`Add ${modalField}`}
-                    className="w-full p-2 border border-gray-300 rounded-md"
                     value={modalInput}
                     onChange={(e) => setModalInput(e.target.value)}
+                    className="w-full p-3 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500"
                   />
                   <button
                     onClick={() => {
@@ -234,26 +266,24 @@ export default function AgentConfigurator() {
                         setModalInput("");
                       }
                     }}
-                    className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
+                    className="py-2 px-4 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition"
                   >
                     Add
                   </button>
                 </div>
 
-                <div className="mt-2">
+                <div className="space-y-2">
                   {modalValues.map((value, index) => (
                     <div
                       key={index}
-                      className="flex justify-between bg-gray-200 p-2 rounded-md mb-2"
+                      className="flex items-center justify-between bg-gray-100 p-2 rounded-md"
                     >
-                      {value}
+                      <span className="text-gray-700">{value}</span>
                       <button
                         onClick={() =>
-                          setModalValues(
-                            modalValues.filter((_, i) => i !== index)
-                          )
+                          setModalValues(modalValues.filter((_, i) => i !== index))
                         }
-                        className="text-red-500"
+                        className="text-red-500 hover:text-red-600"
                       >
                         ✖
                       </button>
@@ -263,17 +293,16 @@ export default function AgentConfigurator() {
               </>
             )}
 
-            {/* Modal Buttons */}
-            <div className="flex justify-end space-x-2 mt-4">
+            <div className="flex justify-end space-x-3 mt-6">
               <button
                 onClick={closeModal}
-                className="px-4 py-2 bg-gray-300 rounded-md"
+                className="py-2 px-4 bg-gray-200 rounded-md hover:bg-gray-300 transition"
               >
                 Cancel
               </button>
               <button
                 onClick={saveModalValues}
-                className="px-4 py-2 bg-indigo-600 text-white rounded-md"
+                className="py-2 px-4 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 transition"
               >
                 Save
               </button>
