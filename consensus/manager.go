@@ -108,6 +108,7 @@ func (cm *ConsensusManager) runConsensusProcess() {
 	// Move to finalization phase
 	cm.activeConsensus.mu.Lock()
 	cm.activeConsensus.State = Finalizing
+	log.Println("Finalization phase started for block", cm.activeConsensus.Block.Height)
 
 	// Count support vs opposition
 	var support, oppose int
@@ -118,10 +119,12 @@ func (cm *ConsensusManager) runConsensusProcess() {
 			oppose++
 		}
 	}
+	log.Printf("Votes count: support=%d, oppose=%d", support, oppose)
 
 	// Make final decision based on votes
 	totalVotes := support + oppose
 	if totalVotes < MinimumValidators {
+		log.Println("Not enough votes; rejecting block")
 		cm.activeConsensus.State = Rejected
 		cm.activeConsensus.mu.Unlock()
 
@@ -135,6 +138,7 @@ func (cm *ConsensusManager) runConsensusProcess() {
 	// Need more than 50% support to accept
 	if float64(support)/float64(totalVotes) > 0.5 {
 		cm.activeConsensus.State = Accepted
+		log.Println("Consensus reached with sufficient support; adding block to blockchain")
 		// Add block to blockchain only if consensus is reached
 		if err := core.GetBlockchain().AddBlock(*cm.activeConsensus.Block); err != nil {
 			log.Printf("Failed to add accepted block: %v", err)
@@ -149,6 +153,7 @@ func (cm *ConsensusManager) runConsensusProcess() {
 			core.GetBlockchain().Mempool.CleanupExpiredTransactions()
 		}
 	} else {
+		log.Println("Insufficient support; rejecting block")
 		cm.activeConsensus.State = Rejected
 		// Return transactions to mempool
 		for _, tx := range cm.activeConsensus.Block.Txs {
@@ -163,6 +168,7 @@ func (cm *ConsensusManager) runConsensusProcess() {
 		Support: support,
 		Oppose:  oppose,
 	}
+	log.Printf("Final consensus result for block %d: %+v", cm.activeConsensus.Block.Height, result)
 	cm.notifySubscribers(int64(cm.activeConsensus.Block.Height), result)
 }
 
