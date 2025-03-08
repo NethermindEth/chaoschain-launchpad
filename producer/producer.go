@@ -7,6 +7,7 @@ import (
 	"github.com/NethermindEth/chaoschain-launchpad/ai"
 	"github.com/NethermindEth/chaoschain-launchpad/core"
 	"github.com/NethermindEth/chaoschain-launchpad/mempool"
+	"github.com/NethermindEth/chaoschain-launchpad/p2p"
 )
 
 // Producer handles block production in ChaosChain
@@ -14,14 +15,16 @@ type Producer struct {
 	Mempool     *mempool.Mempool
 	Personality ai.Personality
 	LastBlock   *core.Block // Keeps track of last block for chaining
+	p2pNode     *p2p.Node
 }
 
 // NewProducer initializes a block producer with AI personality
-func NewProducer(mp *mempool.Mempool, personality ai.Personality) *Producer {
+func NewProducer(mp *mempool.Mempool, personality ai.Personality, p2pNode *p2p.Node) *Producer {
 	return &Producer{
 		Mempool:     mp,
 		Personality: personality,
 		LastBlock:   nil, // No previous block at the start
+		p2pNode:     p2pNode,
 	}
 }
 

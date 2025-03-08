@@ -20,6 +20,7 @@ type Node struct {
 	mu          sync.Mutex
 	listener    net.Listener
 	subscribers map[string][]func([]byte)
+	port        int
 }
 
 var defaultNode = NewNode()
@@ -34,30 +35,58 @@ func NewNode() *Node {
 	return &Node{
 		Peers:       make(map[string]*Peer),
 		subscribers: make(map[string][]func([]byte)),
+		port:        0,
 	}
 }
 
 // StartServer starts listening for new connections
-func (p *Node) StartServer(port int) {
+func (n *Node) StartServer(port int) {
+	n.port = port
 	listener, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
 	if err != nil {
 		log.Fatalf("Failed to start server: %v", err)
 	}
-	p.listener = listener
+	n.listener = listener
 	log.Printf("P2P server started on port %d\n", port)
 
+	// Server is ready to accept connections
+	go n.acceptConnections()
+}
+
+func (n *Node) acceptConnections() {
 	for {
-		conn, err := listener.Accept()
+		conn, err := n.listener.Accept()
 		if err != nil {
 			log.Printf("Connection failed: %v", err)
 			continue
 		}
-		go p.handleConnection(conn)
+		go n.handleConnection(conn)
 	}
 }
 
+// Add these constants
+const (
+	MAX_PEERS = 10 // Maximum number of peer connections
+	MIN_PEERS = 3  // Minimum desired peer connections
+)
+
 // ConnectToPeer connects to a peer at a given address
-func (p *Node) ConnectToPeer(address string) {
+func (n *Node) ConnectToPeer(address string) {
+	// Don't connect if we already have this peer
+	n.mu.Lock()
+	if _, exists := n.Peers[address]; exists {
+		n.mu.Unlock()
+		return
+	}
+
+	// Don't connect to self
+	if fmt.Sprintf("localhost:%d", n.port) == address {
+		n.mu.Unlock()
+		return
+	}
+	n.mu.Unlock()
+
+	log.Printf("Attempting to connect to peer at %s", address)
 	conn, err := net.Dial("tcp", address)
 	if err != nil {
 		log.Printf("Failed to connect to peer %s: %v", address, err)
@@ -65,11 +94,17 @@ func (p *Node) ConnectToPeer(address string) {
 	}
 
 	peer := &Peer{Address: address, Conn: conn}
-	p.mu.Lock()
-	p.Peers[address] = peer
-	p.mu.Unlock()
+	n.mu.Lock()
+	n.Peers[address] = peer
+	n.mu.Unlock()
 
-	go p.listenToPeer(peer)
+	// Request peer list from new connection
+	n.BroadcastMessage(Message{
+		Type: "GET_PEERS",
+		Data: fmt.Sprintf("localhost:%d", n.port),
+	})
+
+	go n.listenToPeer(peer)
 	log.Printf("Connected to peer: %s\n", address)
 }
 
@@ -110,10 +145,41 @@ func (p *Node) listenToPeer(peer *Peer) {
 }
 
 // handleMessage processes incoming messages
-func (p *Node) handleMessage(msg Message, peer *Peer) {
+func (n *Node) handleMessage(msg Message, peer *Peer) {
 	log.Printf("Received message from %s: %s", peer.Address, msg.Type)
 
 	switch msg.Type {
+	case "GET_PEERS":
+		// Send our peer list
+		n.mu.Lock()
+		peerList := make([]string, 0)
+		for addr := range n.Peers {
+			peerList = append(peerList, addr)
+		}
+		n.mu.Unlock()
+
+		n.BroadcastMessage(Message{
+			Type: "PEER_LIST",
+			Data: peerList,
+		})
+
+	case "PEER_LIST":
+		// Connect to some new peers from the list
+		if peerList, ok := msg.Data.([]string); ok {
+			n.mu.Lock()
+			currentPeerCount := len(n.Peers)
+			n.mu.Unlock()
+
+			// Connect to more peers if we're below minimum
+			if currentPeerCount < MIN_PEERS {
+				for _, addr := range peerList {
+					n.ConnectToPeer(addr)
+					if len(n.Peers) >= MAX_PEERS {
+						break
+					}
+				}
+			}
+		}
 	case "TRANSACTION":
 		// Process incoming transaction
 		log.Println("Transaction received:", msg.Data)
@@ -156,4 +222,12 @@ func (p *Node) Publish(msgType string, data []byte) {
 	for _, callback := range callbacks {
 		go callback(data)
 	}
+}
+
+func (n *Node) GetPort() int {
+	return n.port
+}
+
+func SetDefaultNode(n *Node) {
+	defaultNode = n
 }

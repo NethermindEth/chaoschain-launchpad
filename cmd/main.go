@@ -1,32 +1,36 @@
 package main
 
 import (
+	"flag"
+	"fmt"
 	"log"
 
 	"github.com/NethermindEth/chaoschain-launchpad/api"
-	"github.com/NethermindEth/chaoschain-launchpad/core"
-	"github.com/NethermindEth/chaoschain-launchpad/mempool"
-	"github.com/NethermindEth/chaoschain-launchpad/p2p"
+	"github.com/NethermindEth/chaoschain-launchpad/cmd/node"
 	"github.com/gin-gonic/gin"
 )
 
 func main() {
-	// Initialize P2P node
-	p2pNode := p2p.GetP2PNode()
-	go func() {
-		log.Printf("Starting P2P server on port 8080...")
-		p2pNode.StartServer(8080)
-	}()
+	// Parse command line flags
+	port := flag.Int("port", 8080, "P2P port")
+	apiPort := flag.Int("api", 3000, "API port")
+	bootstrapNode := flag.String("bootstrap", "", "Bootstrap node address")
+	flag.Parse()
 
-	// Initialize mempool
-	mempool.InitMempool(3600) // 1 hour expiration
+	// Create and start node
+	node := node.NewNode(node.NodeConfig{
+		P2PPort:       *port,
+		APIPort:       *apiPort,
+		BootstrapNode: *bootstrapNode,
+	})
 
-	// Initialize blockchain with mempool
-	core.InitBlockchain(mempool.GetMempool())
+	if err := node.Start(); err != nil {
+		log.Fatalf("Failed to start node: %v", err)
+	}
 
 	// Start API server
-	log.Printf("Starting API server on port 3000...")
+	log.Printf("Starting API server on port %d...", *apiPort)
 	router := gin.New()
 	api.SetupRoutes(router)
-	log.Fatal(router.Run(":3000"))
+	log.Fatal(router.Run(fmt.Sprintf(":%d", *apiPort)))
 }

@@ -1,13 +1,16 @@
 package handlers
 
 import (
+	"fmt"
 	"net/http"
 	"strconv"
+	"sync"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 
 	"github.com/NethermindEth/chaoschain-launchpad/ai"
+	"github.com/NethermindEth/chaoschain-launchpad/cmd/node"
 	"github.com/NethermindEth/chaoschain-launchpad/core"
 	"github.com/NethermindEth/chaoschain-launchpad/mempool"
 	"github.com/NethermindEth/chaoschain-launchpad/p2p"
@@ -15,6 +18,25 @@ import (
 	"github.com/NethermindEth/chaoschain-launchpad/registry"
 	"github.com/NethermindEth/chaoschain-launchpad/validator"
 )
+
+var (
+	lastUsedPort = 8080
+	portMutex    sync.Mutex
+)
+
+func findAvailablePort() int {
+	portMutex.Lock()
+	defer portMutex.Unlock()
+	lastUsedPort++
+	return lastUsedPort
+}
+
+func findAvailableAPIPort() int {
+	portMutex.Lock()
+	defer portMutex.Unlock()
+	lastUsedPort++
+	return lastUsedPort
+}
 
 // RegisterAgent - Registers a new AI agent (Producer or Validator)
 func RegisterAgent(c *gin.Context) {
@@ -24,45 +46,73 @@ func RegisterAgent(c *gin.Context) {
 		return
 	}
 
-	// Assign a unique ID to the agent
+	// Assign a unique ID
 	agent.ID = uuid.New().String()
 
+	// Get bootstrap node's P2P instance
+	bootstrapNode := p2p.GetP2PNode()
+	bootstrapPort := bootstrapNode.GetPort()
+	if bootstrapPort == 0 {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Bootstrap node not ready"})
+		return
+	}
+
+	// Create a new node for this agent
+	newPort := findAvailablePort()
+	agentNode := node.NewNode(node.NodeConfig{
+		P2PPort:       newPort,
+		APIPort:       findAvailableAPIPort(),
+		BootstrapNode: fmt.Sprintf("localhost:%d", bootstrapPort),
+	})
+
+	if err := agentNode.Start(); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to start agent node"})
+		return
+	}
+
 	if agent.Role == "producer" {
-		// Create personality from agent data
 		personality := ai.Personality{
 			Name:   agent.Name,
 			Traits: agent.Traits,
 			Style:  agent.Style,
 		}
 
-		// Create producer with mempool and personality
-		mp := mempool.GetMempool().(*mempool.Mempool)
-		producerInstance := producer.NewProducer(mp, personality)
-
-		// Register producer
-		registry.RegisterProducer(agent.ID, producerInstance)
-
-	} else if agent.Role == "validator" {
-		// Ensure P2P node exists
-		p2pNode := p2p.GetP2PNode() // Fetch the existing P2P node
-
-		if p2pNode == nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "P2P node not initialized"})
+		// Get mempool safely
+		mp, ok := agentNode.GetMempool().(*mempool.Mempool)
+		if !ok {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Invalid mempool type"})
 			return
 		}
 
-		// Create validator instance
-		validatorInstance := validator.NewValidator(agent.ID, agent.Name, agent.Traits, agent.Style, agent.Influences, p2pNode)
+		// Create producer on its own node
+		producerInstance := producer.NewProducer(mp, personality, agentNode.GetP2PNode())
 
-		// Register validator
+		// Register on the agent's node
+		registry.RegisterProducer(agent.ID, producerInstance)
+
+	} else if agent.Role == "validator" {
+		validatorInstance := validator.NewValidator(
+			agent.ID,
+			agent.Name,
+			agent.Traits,
+			agent.Style,
+			agent.Influences,
+			agentNode.GetP2PNode(),
+		)
+
+		// Register on the agent's node
 		registry.RegisterValidator(agent.ID, validatorInstance)
-
 	} else {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid agent role"})
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"message": "Agent registered successfully", "agentID": agent.ID})
+	c.JSON(http.StatusOK, gin.H{
+		"message": "Agent registered successfully",
+		"agentID": agent.ID,
+		"p2pPort": newPort,
+		"apiPort": agentNode.GetAPIPort(),
+	})
 }
 
 // GetBlock - Fetch a block by height
