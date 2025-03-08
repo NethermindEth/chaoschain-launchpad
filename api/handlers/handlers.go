@@ -19,6 +19,7 @@ import (
 	"github.com/NethermindEth/chaoschain-launchpad/producer"
 	"github.com/NethermindEth/chaoschain-launchpad/registry"
 	"github.com/NethermindEth/chaoschain-launchpad/validator"
+	"github.com/NethermindEth/chaoschain-launchpad/forum"
 )
 
 var (
@@ -263,7 +264,13 @@ func ProposeBlock(c *gin.Context) {
 		return
 	}
 
-	// Start consensus process
+	// Immediately create the discussion thread for visualization.
+	// The thread ID is derived from the block's hash.
+	threadID := block.Hash()
+	producerName := "ProducerAgent" // Replace with the actual producer agent's name as needed.
+	title := fmt.Sprintf("Block Proposal %s", threadID)
+	forum.CreateThread(threadID, title, producerName)
+
 	cm := consensus.GetConsensusManager()
 	if err := cm.ProposeBlock(block); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Failed to start consensus: " + err.Error()})
@@ -272,29 +279,37 @@ func ProposeBlock(c *gin.Context) {
 
 	if !waitForConsensus {
 		c.JSON(http.StatusOK, gin.H{
-			"message": "Block proposed successfully, consensus started",
-			"block":   block,
+			"message":   "Block proposed successfully, consensus started",
+			"block":     block,
+			"thread_id": threadID,
 		})
 		return
 	}
 
-	// Wait for consensus completion
 	result := make(chan consensus.ConsensusResult)
 	cm.SubscribeResult(int64(block.Height), result)
 
 	select {
 	case consensusResult := <-result:
 		c.JSON(http.StatusOK, gin.H{
-			"message":  "Consensus completed",
-			"block":    block,
-			"accepted": consensusResult.State == consensus.Accepted,
-			"support":  consensusResult.Support,
-			"oppose":   consensusResult.Oppose,
+			"message":   "Consensus completed",
+			"block":     block,
+			"accepted":  consensusResult.State == consensus.Accepted,
+			"support":   consensusResult.Support,
+			"oppose":    consensusResult.Oppose,
+			"thread_id": threadID,
 		})
 	case <-time.After(35 * time.Second): // Slightly longer than DiscussionTimeout
 		c.JSON(http.StatusGatewayTimeout, gin.H{
-			"error": "Consensus timed out",
-			"block": block,
+			"error":     "Consensus timed out",
+			"block":     block,
+			"thread_id": threadID,
 		})
 	}
+}
+
+// GetAllThreads returns all active discussion threads for monitoring.
+func GetAllThreads(c *gin.Context) {
+	threads := forum.GetAllThreads() // We'll implement this function in forum
+	c.JSON(http.StatusOK, threads)
 }
