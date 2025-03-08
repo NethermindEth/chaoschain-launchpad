@@ -18,5 +18,6 @@ func SetupRoutes(router *gin.Engine) {
 		api.POST("/validators/:agentID/influences", handlers.AddInfluence)
 		api.POST("/validators/:agentID/relationships", handlers.UpdateRelationship)
 		api.POST("/block/propose", handlers.ProposeBlock)
+		api.GET("/forum/threads", handlers.GetAllThreads)
 	}
 }

@@ -9,6 +9,7 @@ import (
 	"github.com/NethermindEth/chaoschain-launchpad/ai"
 	"github.com/NethermindEth/chaoschain-launchpad/core"
 	"github.com/NethermindEth/chaoschain-launchpad/p2p"
+	"github.com/NethermindEth/chaoschain-launchpad/forum"
 )
 
 type Discussion struct {
@@ -105,6 +106,13 @@ func StartBlockDiscussion(validatorID string, block *core.Block, traits []string
 
 	// Add to discussion
 	consensus.AddDiscussion(validatorID, response, opinionType)
+
+
+	threadID := block.Hash()
+	log.Printf("Added reply from %s to thread %s: %s", validatorID, threadID, response)
+	if err := forum.AddReply(threadID, validatorID, response); err != nil {
+		log.Printf("Validator %s failed to add forum reply: %v", name, err)
+	}
 }
 
 func calculateTotalValue(txs []core.Transaction) float64 {
