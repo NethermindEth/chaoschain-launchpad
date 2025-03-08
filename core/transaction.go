@@ -15,6 +15,7 @@ type Transaction struct {
 	To        string  `json:"to"`
 	Amount    float64 `json:"amount"`
 	Fee       uint64  `json:"fee"` // 💰 New: Transaction fee
+	Content   string  `json:"content"`
 	Timestamp int64   `json:"timestamp"`
 	Signature string  `json:"signature"`
 	PublicKey string  `json:"publicKey"`
