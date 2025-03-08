@@ -57,13 +57,13 @@ func NewValidator(id string, name string, traits []string, style string, influen
 	if err := core.NatsBrokerInstance.Subscribe("BLOCK_DISCUSSION_TRIGGER", func(m *nats.Msg) {
 		var block core.Block
 		if err := json.Unmarshal(m.Data, &block); err != nil {
-			log.Printf("Validator %s failed to decode block in discussion trigger via NATS: %v", name, err)
+			log.Printf("Error unmarshalling block in discussion trigger: %v", err)
 			return
 		}
 		log.Printf("Received BLOCK_DISCUSSION_TRIGGER event for block %d from NATS", block.Height)
 		go consensus.StartBlockDiscussion(id, &block, traits, name)
 	}); err != nil {
-		log.Printf("Validator %s failed to subscribe to BLOCK_DISCUSSION_TRIGGER on NATS: %v", name, err)
+		log.Printf("Validator failed to subscribe to BLOCK_DISCUSSION_TRIGGER on NATS: %v", err)
 	}
 
 	return validator
