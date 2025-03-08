@@ -1,6 +1,7 @@
 package node
 
 import (
+	"fmt"
 	"log"
 	"time"
 
@@ -28,7 +29,7 @@ type Node struct {
 func NewNode(config NodeConfig) *Node {
 	return &Node{
 		config:   config,
-		p2pNode:  p2p.NewNode(),
+		p2pNode:  p2p.NewNode(config.P2PPort),
 		shutdown: make(chan struct{}),
 	}
 }
@@ -42,6 +43,10 @@ func (n *Node) Start() error {
 	// Start P2P server
 	log.Printf("Starting P2P node on port %d...", n.config.P2PPort)
 	n.p2pNode.StartServer(n.config.P2PPort)
+
+	// Register this node in the network
+	addr := fmt.Sprintf("localhost:%d", n.config.P2PPort)
+	p2p.RegisterNode(addr, n.p2pNode)
 
 	// Set this as the default P2P node
 	p2p.SetDefaultNode(n.p2pNode)

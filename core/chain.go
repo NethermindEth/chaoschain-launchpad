@@ -77,7 +77,7 @@ func GetNetworkStatus() map[string]interface{} {
 		"height":     len(defaultChain.Blocks) - 1,
 		"latestHash": defaultChain.Blocks[len(defaultChain.Blocks)-1].Hash(),
 		"totalTxs":   len(defaultChain.Blocks[len(defaultChain.Blocks)-1].Txs),
-		"peerCount":  len(p2p.GetP2PNode().Peers),
+		// Let the API layer handle peer count
 	}
 }
 
