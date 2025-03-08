@@ -74,3 +74,10 @@ func (mp *Mempool) CleanupExpiredTransactions() {
 		}
 	}
 }
+
+// Size returns the number of transactions in the mempool
+func (mp *Mempool) Size() int {
+	mp.mu.Lock()
+	defer mp.mu.Unlock()
+	return len(mp.transactions)
+}

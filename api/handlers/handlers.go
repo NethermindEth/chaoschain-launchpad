@@ -134,8 +134,14 @@ func GetBlock(c *gin.Context) {
 
 // GetNetworkStatus - Returns the current status of ChaosChain
 func GetNetworkStatus(c *gin.Context) {
-	status := core.GetNetworkStatus()
-	status["peerCount"] = p2p.GetNetworkPeerCount()
+	bc := core.GetBlockchain()
+	status := map[string]interface{}{
+		"height":     len(bc.Blocks) - 1,
+		"latestHash": bc.Blocks[len(bc.Blocks)-1].Hash(),
+		"totalTxs":   len(bc.Blocks[len(bc.Blocks)-1].Txs),
+		"peerCount":  p2p.GetNetworkPeerCount(),
+	}
+
 	c.JSON(http.StatusOK, gin.H{"status": status})
 }
 
@@ -147,13 +153,23 @@ func SubmitTransaction(c *gin.Context) {
 		return
 	}
 
-	bc := core.GetBlockchain()
-	if bc == nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Blockchain not initialized"})
+	// In production, you would get the private key from secure storage
+	privateKey, err := core.GenerateKeyPair()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate key"})
 		return
 	}
+
+	// Sign the transaction
+	if err := tx.SignTransaction(privateKey); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to sign transaction"})
+		return
+	}
+
+	// Process the signed transaction
+	bc := core.GetBlockchain()
 	if err := bc.ProcessTransaction(tx); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Transaction failed"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Transaction failed: " + err.Error()})
 		return
 	}
 
@@ -231,4 +247,19 @@ func UpdateRelationship(c *gin.Context) {
 
 	v.Relationships[rel.TargetID] = rel.Score
 	c.JSON(http.StatusOK, gin.H{"message": "Relationship updated successfully"})
+}
+
+// ProposeBlock creates a new block from pending transactions
+func ProposeBlock(c *gin.Context) {
+	bc := core.GetBlockchain()
+	block, err := bc.CreateBlock()
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"message": "Block created successfully",
+		"block":   block,
+	})
 }
