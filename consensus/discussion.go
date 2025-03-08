@@ -61,28 +61,39 @@ func StartBlockDiscussion(validatorID string, block *core.Block, traits []string
 		return
 	}
 
+	// Format transactions with their content for analysis
+	var txContents []string
+	for _, tx := range block.Txs {
+		txContents = append(txContents, fmt.Sprintf("- From %s: \"%s\" (Amount: %.2f)",
+			tx.From, tx.Content, tx.Amount))
+	}
+
 	// Generate opinion using validator traits and block analysis
 	prompt := fmt.Sprintf(`You are %s, a blockchain validator with traits: %v.
 	
 	Analyze this block:
 	- Height: %d
 	- Number of transactions: %d
-	- Total transaction value: %.2f
+	- Total value: %.2f
+	
+	Transaction contents:
+	%s
 	
 	Consider:
-	1. Transaction patterns
-	2. Your personality traits
-	3. Network impact
+	1. The content and intent of the transactions
+	2. Your personality traits and how they align with these transactions
+	3. Network impact and social implications
 	
 	Respond with:
 	1. Your opinion (1 sentence)
 	2. Your stance (SUPPORT/OPPOSE/QUESTION)
-	3. A brief reason why`,
-		name, traits, block.Height, len(block.Txs), calculateTotalValue(block.Txs))
+	3. A brief reason why, referencing specific transaction content`,
+		name, traits, block.Height, len(block.Txs),
+		calculateTotalValue(block.Txs),
+		strings.Join(txContents, "\n"))
 
 	response := ai.GenerateLLMResponse(prompt)
-
-	log.Println("Response:", response)
+	log.Printf("Validator %s response: %s", name, response)
 
 	// Parse AI response to determine type
 	opinionType := "question" // default
