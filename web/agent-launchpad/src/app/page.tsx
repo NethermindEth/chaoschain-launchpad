@@ -29,8 +29,8 @@ const Home: NextPage = () => {
             Experience real-time consensus and decentralized interactions.
           </p>
           <Link
-            href="/agent-configurator"
-            className="inline-block bg-gradient-to-r from-purple-700 to-purple-500 hover:opacity-90 text-gray-100 font-medium py-3 px-6 rounded-lg transition-all duration-300"
+            href="/agents"
+            className="inline-block bg-gradient-to-r from-purple-700 to-purple-900 hover:opacity-90 text-gray-100 font-medium py-3 px-6 rounded-lg transition-all duration-300"
           >
             LET'S GET STARTED
           </Link>
