@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 
+	"github.com/NethermindEth/chaoschain-launchpad/core"
 	"github.com/NethermindEth/chaoschain-launchpad/api"
 	"github.com/NethermindEth/chaoschain-launchpad/cmd/node"
 	_ "github.com/NethermindEth/chaoschain-launchpad/config" // Initialize config
@@ -28,6 +29,12 @@ func main() {
 	if err := node.Start(); err != nil {
 		log.Fatalf("Failed to start node: %v", err)
 	}
+
+	// Start NATS messaging
+	core.SetupNATS("nats://localhost:4222")
+	defer core.NatsBrokerInstance.Close()
+
+	log.Println("Application started with NATS messaging enabled.")
 
 	// Start API server
 	log.Printf("Starting API server on port %d...", *apiPort)

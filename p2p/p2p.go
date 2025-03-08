@@ -149,6 +149,7 @@ func (p *Node) listenToPeer(peer *Peer) {
 
 		var msg Message
 		err = json.Unmarshal(buffer[:n], &msg)
+		log.Printf("Received message: %s", msg)
 		if err != nil {
 			log.Printf("Failed to parse message: %v", err)
 			continue
@@ -194,15 +195,15 @@ func (n *Node) handleMessage(msg Message, peer *Peer) {
 				}
 			}
 		}
-	case "TRANSACTION":
-		// Process incoming transaction
-		log.Println("Transaction received:", msg.Data)
-	case "BLOCK":
-		// Process new block
-		log.Println("New block received:", msg.Data)
-	case "VALIDATION":
-		// Process validation result
-		log.Println("Validation received:", msg.Data)
+	// case "TRANSACTION":
+	// 	// Process incoming transaction
+	// 	log.Println("Transaction received:", msg.Data)
+	// case "BLOCK":
+	// 	// Process new block
+	// 	log.Println("New block received:", msg.Data)
+	// case "VALIDATION":
+	// 	// Process validation result
+	// 	log.Println("Validation received:", msg.Data)
 	}
 }
 
