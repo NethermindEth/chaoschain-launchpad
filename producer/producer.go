@@ -1,6 +1,7 @@
 package producer
 
 import (
+	"encoding/json"
 	"log"
 	"time"
 
@@ -10,7 +11,7 @@ import (
 	"github.com/NethermindEth/chaoschain-launchpad/p2p"
 )
 
-// Producer handles block production in ChaosChain
+// Producer handles block production in the system.
 type Producer struct {
 	Mempool     *mempool.Mempool
 	Personality ai.Personality
@@ -18,19 +19,18 @@ type Producer struct {
 	p2pNode     *p2p.Node
 }
 
-// NewProducer initializes a block producer with AI personality
+// NewProducer initializes a block Producer.
 func NewProducer(mp *mempool.Mempool, personality ai.Personality, p2pNode *p2p.Node) *Producer {
 	return &Producer{
 		Mempool:     mp,
 		Personality: personality,
-		LastBlock:   nil, // No previous block at the start
+		LastBlock:   nil,
 		p2pNode:     p2pNode,
 	}
 }
 
-// ProduceBlock uses AI to select transactions and create a block
+// ProduceBlock creates a new block, signs it, and publishes its proposal both via NATS and TCP-based P2P.
 func (p *Producer) ProduceBlock() core.Block {
-	// Get previous block hash (default to "genesis" if no previous block)
 	prevHash := "genesis"
 	height := 1
 	if p.LastBlock != nil {
@@ -38,13 +38,11 @@ func (p *Producer) ProduceBlock() core.Block {
 		height = p.LastBlock.Height + 1
 	}
 
-	// Get transactions from the mempool
+	// Select transactions from the mempool.
 	txs := p.Mempool.GetPendingTransactions()
-
-	// Let AI select transactions
 	selectedTxs := p.Personality.SelectTransactions(txs)
 
-	// Create a new block
+	// Create a new block.
 	block := core.Block{
 		Height:    height,
 		PrevHash:  prevHash,
@@ -53,22 +51,39 @@ func (p *Producer) ProduceBlock() core.Block {
 		Signature: "", // TODO: Implement AI-based cryptographic signing
 	}
 
-	// AI Generates a signature for the block (to be verified by validators)
+	// Let the AI generate a block signature.
 	block.Signature = p.Personality.SignBlock(block)
 
-	// Remove transactions from mempool
+	// Remove processed transactions.
 	for _, tx := range selectedTxs {
 		p.Mempool.RemoveTransaction(tx.Signature)
 	}
 
-	// Generate AI-powered block announcement
 	announcement := p.Personality.GenerateBlockAnnouncement(block)
+	log.Printf("New Block (Height: %d) Announcement: %s", block.Height, announcement)
 
-	log.Printf("🔷 New Block Created (Height: %d, Txns: %d)", block.Height, len(selectedTxs))
-	log.Printf("📢 AI Announcement: %s", announcement)
+	// Marshal block data to JSON.
+	blockBytes, err := json.Marshal(block)
+	if err != nil {
+		log.Printf("Error encoding block proposal: %v", err)
+	} else {
+		// Publish block proposal over NATS.
+		err = core.NatsBrokerInstance.Publish("BLOCK_PROPOSAL", blockBytes)
+		if err != nil {
+			log.Printf("Error publishing BLOCK_PROPOSAL via NATS: %v", err)
+		} else {
+			log.Println("Published BLOCK_PROPOSAL event via NATS")
+		}
+	}
 
-	// Store the last created block
+	// Also broadcast block proposal over the TCP-based P2P layer.
+	// Note: p2p.GetP2PNode().BroadcastMessage sends a p2p.Message that includes the block.
+	p2p.GetP2PNode().BroadcastMessage(p2p.Message{
+		Type: "BLOCK_PROPOSAL",
+		Data: block,
+	})
+	log.Println("Broadcasted BLOCK_PROPOSAL event via P2P layer")
+
 	p.LastBlock = &block
-
 	return block
 }

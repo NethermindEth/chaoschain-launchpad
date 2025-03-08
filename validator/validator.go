@@ -1,6 +1,7 @@
 package validator
 
 import (
+	"encoding/json"
 	"fmt"
 	"log"
 	"strings"
@@ -9,6 +10,8 @@ import (
 	"github.com/NethermindEth/chaoschain-launchpad/ai"
 	"github.com/NethermindEth/chaoschain-launchpad/core"
 	"github.com/NethermindEth/chaoschain-launchpad/p2p"
+	"github.com/NethermindEth/chaoschain-launchpad/consensus"
+	"github.com/nats-io/nats.go"
 )
 
 // Validator represents an AI-based validator with personality and network access
@@ -29,7 +32,9 @@ var (
 	validatorsMutex = sync.RWMutex{}
 )
 
-// NewValidator initializes a new Validator with a unique personality
+// NewValidator initializes a new Validator with a unique personality.
+// It also subscribes to the BLOCK_DISCUSSION_TRIGGER events so that the validator
+// can autonomously start a discussion when a new block proposal is broadcast.
 func NewValidator(id string, name string, traits []string, style string, influences []string, p2pNode *p2p.Node) *Validator {
 	validator := &Validator{
 		ID:            id,
@@ -47,6 +52,34 @@ func NewValidator(id string, name string, traits []string, style string, influen
 	validatorsMutex.Lock()
 	validators[id] = validator
 	validatorsMutex.Unlock()
+
+	// Subscribe to the discussion trigger events.
+	// When a BLOCK_DISCUSSION_TRIGGER message is received, the validator will decode the block
+	// and start its discussion.
+	p2pNode.Subscribe("BLOCK_DISCUSSION_TRIGGER", func(data []byte) {
+		var block core.Block
+		// Using json.Unmarshal as a stand-in for core.DecodeJSON (which might be your custom decoding helper).
+		if err := json.Unmarshal(data, &block); err != nil {
+			log.Printf("Validator %s failed to decode block in discussion trigger via P2P: %v", name, err)
+			return
+		}
+		log.Printf("Received BLOCK_DISCUSSION_TRIGGER event for block %d from P2P", block.Height)
+		// Start the discussion in a separate goroutine so as not to block the message handler.
+		go consensus.StartBlockDiscussion(id, &block, traits, name)
+	})
+
+	// Also subscribe to the BLOCK_DISCUSSION_TRIGGER events via NATS.
+	if err := core.NatsBrokerInstance.Subscribe("BLOCK_DISCUSSION_TRIGGER", func(m *nats.Msg) {
+		var block core.Block
+		if err := json.Unmarshal(m.Data, &block); err != nil {
+			log.Printf("Validator %s failed to decode block in discussion trigger via NATS: %v", name, err)
+			return
+		}
+		log.Printf("Received BLOCK_DISCUSSION_TRIGGER event for block %d from NATS", block.Height)
+		go consensus.StartBlockDiscussion(id, &block, traits, name)
+	}); err != nil {
+		log.Printf("Validator %s failed to subscribe to BLOCK_DISCUSSION_TRIGGER on NATS: %v", name, err)
+	}
 
 	return validator
 }

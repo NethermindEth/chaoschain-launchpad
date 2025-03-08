@@ -1,13 +1,13 @@
 package consensus
 
 import (
+	"encoding/json"
 	"fmt"
 	"log"
 	"sync"
 	"time"
 
 	"github.com/NethermindEth/chaoschain-launchpad/core"
-	"github.com/NethermindEth/chaoschain-launchpad/validator"
 )
 
 type ConsensusState int
@@ -88,13 +88,21 @@ func (cm *ConsensusManager) runConsensusProcess() {
 	cm.activeConsensus.State = InDiscussion
 	cm.activeConsensus.mu.Unlock()
 
-	// Notify validators to start discussion
-	validators := validator.GetAllValidators()
-	for _, v := range validators {
-		go StartBlockDiscussion(v.ID, cm.activeConsensus.Block, v.Traits, v.Name)
+	// Marshal the block data to JSON.
+	blockData, err := json.Marshal(cm.activeConsensus.Block)
+	if err != nil {
+		log.Printf("Failed to marshal block: %v", err)
+	} else {
+		// Publish a discussion trigger event through NATS.
+		err = core.NatsBrokerInstance.Publish("BLOCK_DISCUSSION_TRIGGER", blockData)
+		if err != nil {
+			log.Printf("Failed to publish discussion trigger: %v", err)
+		} else {
+			log.Println("Published BLOCK_DISCUSSION_TRIGGER event")
+		}
 	}
 
-	// Wait for discussion period
+	// Wait for discussion period to allow validators to process the trigger and debate the block
 	time.Sleep(DiscussionTimeout)
 
 	// Move to finalization phase
@@ -111,7 +119,7 @@ func (cm *ConsensusManager) runConsensusProcess() {
 		}
 	}
 
-	// Make final decision
+	// Make final decision based on votes
 	totalVotes := support + oppose
 	if totalVotes < MinimumValidators {
 		cm.activeConsensus.State = Rejected
