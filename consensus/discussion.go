@@ -109,7 +109,9 @@ func StartBlockDiscussion(validatorID string, block *core.Block, traits []string
 
 
 	threadID := block.Hash()
-	log.Printf("Added reply from %s to thread %s: %s", validatorID, threadID, response)
+	sanitizedValidatorID := strings.ReplaceAll(validatorID, "\n", "")
+	sanitizedValidatorID = strings.ReplaceAll(sanitizedValidatorID, "\r", "")
+	log.Printf("Added reply from %s to thread %s: %s", sanitizedValidatorID, threadID, response)
 	if err := forum.AddReply(threadID, validatorID, response); err != nil {
 		log.Printf("Validator %s failed to add forum reply: %v", name, err)
 	}
