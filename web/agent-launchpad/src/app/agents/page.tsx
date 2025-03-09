@@ -5,6 +5,7 @@ import { Lato } from "next/font/google";
 import { FiPlus, FiCheck, FiUser } from "react-icons/fi";
 import AddAgentModal from "./AddAgentModal";
 import { useAgentsManager } from "./hooks/useAgentsManager";
+import Link from "next/link";
 
 // Import Lato with selected weights
 const lato = Lato({ subsets: ["latin"], weight: ["400", "700", "900"] });
@@ -36,8 +37,9 @@ export default function AgentsPage() {
           <header className="mb-8">
             <h1 className="text-4xl font-bold">ChaosChain Agent Launchpad</h1>
             <p className="mt-2 text-sm text-gray-300">
-              Configure and manage your agents for ChaosChain Launchpad. Add new agents using the
-              panel on the left, and view your configuration details on the right.
+              Configure and manage your agents for ChaosChain Launchpad. Add new
+              agents using the panel on the left, and view your configuration
+              details on the right.
             </p>
           </header>
 
@@ -48,8 +50,8 @@ export default function AgentsPage() {
               <div className="mb-4">
                 <h2 className="text-2xl font-bold">Agent Setup</h2>
                 <p className="text-gray-300">
-                  Add agents to your network configuration. Once you have at least 3 agents, you
-                  can start the chain.
+                  Add agents to your network configuration. Once you have at
+                  least 3 agents, you can start the chain.
                 </p>
               </div>
 
@@ -74,10 +76,14 @@ export default function AgentsPage() {
               </div>
 
               {/* Start Chain Button */}
+
               {agents.length >= requiredAgents && (
-                <button className="mb-6 flex items-center bg-gradient-to-r from-green-600 to-green-800 hover:opacity-90 text-gray-100 font-medium py-3 px-6 rounded-lg transition transform hover:scale-105 duration-200">
-                  <FiCheck className="mr-2" /> Start Chain
-                </button>
+               <Link
+               href="/forum"
+               className="mb-6 inline-flex items-center bg-gradient-to-r from-green-600 to-green-800 hover:opacity-90 text-gray-100 font-medium py-3 px-6 rounded-lg transition transform hover:scale-105 duration-200"
+             >
+               <FiCheck className="mr-2" /> Start Chain
+             </Link>
               )}
 
               {/* Add Agent Button */}
@@ -105,16 +111,26 @@ export default function AgentsPage() {
                       key={agent.id}
                       className="p-4 bg-gray-900 rounded-lg hover:bg-gray-700 transition-colors duration-200"
                     >
-                      <h3 className="text-xl font-semibold mb-2">{agent.name}</h3>
+                      <h3 className="text-xl font-semibold mb-2">
+                        {agent.name}
+                      </h3>
                       <div className="grid grid-cols-2 gap-y-1 text-sm">
                         <div className="font-semibold text-gray-400">Role</div>
                         <div className="text-gray-200">{agent.role}</div>
-                        <div className="font-semibold text-gray-400">Traits</div>
-                        <div className="text-gray-200">{agent.traits.join(", ")}</div>
+                        <div className="font-semibold text-gray-400">
+                          Traits
+                        </div>
+                        <div className="text-gray-200">
+                          {agent.traits.join(", ")}
+                        </div>
                         <div className="font-semibold text-gray-400">Style</div>
                         <div className="text-gray-200">{agent.style}</div>
-                        <div className="font-semibold text-gray-400">Influences</div>
-                        <div className="text-gray-200">{agent.influences.join(", ")}</div>
+                        <div className="font-semibold text-gray-400">
+                          Influences
+                        </div>
+                        <div className="text-gray-200">
+                          {agent.influences.join(", ")}
+                        </div>
                         <div className="font-semibold text-gray-400">Mood</div>
                         <div className="text-gray-200">{agent.mood}</div>
                       </div>
