@@ -1,7 +1,8 @@
-package messaging
+package communication
 
 import (
 	"fmt"
+
 	"github.com/nats-io/nats.go"
 )
 

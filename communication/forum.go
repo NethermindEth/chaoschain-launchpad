@@ -1,4 +1,4 @@
-package forum
+package communication
 
 import (
 	"fmt"
@@ -18,7 +18,7 @@ type ForumMessage struct {
 
 // ForumThread represents a discussion thread for a block proposal.
 type ForumThread struct {
-	ThreadID  string         `json:"thread_id"`  // e.g., the block hash
+	ThreadID  string         `json:"thread_id"` // e.g., the block hash
 	Title     string         `json:"title"`
 	Creator   string         `json:"creator"`
 	CreatedAt time.Time      `json:"created_at"`
@@ -88,4 +88,4 @@ func GetAllThreads() []*ForumThread {
 		threadsList = append(threadsList, thread)
 	}
 	return threadsList
-} 
+}

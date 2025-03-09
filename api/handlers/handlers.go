@@ -12,6 +12,7 @@ import (
 
 	"github.com/NethermindEth/chaoschain-launchpad/ai"
 	"github.com/NethermindEth/chaoschain-launchpad/cmd/node"
+	"github.com/NethermindEth/chaoschain-launchpad/communication"
 	"github.com/NethermindEth/chaoschain-launchpad/consensus"
 	"github.com/NethermindEth/chaoschain-launchpad/core"
 	"github.com/NethermindEth/chaoschain-launchpad/mempool"
@@ -19,7 +20,6 @@ import (
 	"github.com/NethermindEth/chaoschain-launchpad/producer"
 	"github.com/NethermindEth/chaoschain-launchpad/registry"
 	"github.com/NethermindEth/chaoschain-launchpad/validator"
-	"github.com/NethermindEth/chaoschain-launchpad/forum"
 )
 
 var (
@@ -269,7 +269,7 @@ func ProposeBlock(c *gin.Context) {
 	threadID := block.Hash()
 	producerName := "ProducerAgent" // Replace with the actual producer agent's name as needed.
 	title := fmt.Sprintf("Block Proposal %s", threadID)
-	forum.CreateThread(threadID, title, producerName)
+	communication.CreateThread(threadID, title, producerName)
 
 	cm := consensus.GetConsensusManager()
 	if err := cm.ProposeBlock(block); err != nil {
@@ -310,6 +310,6 @@ func ProposeBlock(c *gin.Context) {
 
 // GetAllThreads returns all active discussion threads for monitoring.
 func GetAllThreads(c *gin.Context) {
-	threads := forum.GetAllThreads() // We'll implement this function in forum
+	threads := communication.GetAllThreads() // We'll implement this function in forum
 	c.JSON(http.StatusOK, threads)
 }
