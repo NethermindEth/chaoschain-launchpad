@@ -1,225 +1,136 @@
 "use client";
 
-import { useState } from "react";
 import Head from "next/head";
+import { Lato } from "next/font/google";
+import { FiPlus, FiCheck, FiUser } from "react-icons/fi";
+import AddAgentModal from "./AddAgentModal";
+import { useAgentsManager } from "./hooks/useAgentsManager";
 
-interface Agent {
-  id: string;
-  name: string;
-  role: 'producer' | 'validator';
-  traits: string[];
-  style: string;
-  influences: string[];
-  mood: string;
-  api_key: string;
-  endpoint: string;
-}
+// Import Lato with selected weights
+const lato = Lato({ subsets: ["latin"], weight: ["400", "700", "900"] });
 
-export default function StartChainPage() {
-  const [agents, setAgents] = useState<Agent[]>([]);
-  const [isModalOpen, setIsModalOpen] = useState(false);
-  const [formData, setFormData] = useState({
-    name: "",
-    role: "producer",
-    traits: "",
-    style: "",
-    influences: "",
-    mood: "",
-    api_key: "",
-    endpoint: "",
-  });
-
-  const handleChange = (
-    e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>
-  ) => {
-    setFormData({ ...formData, [e.target.name]: e.target.value });
-  };
-
-  const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-
-    // Create a new Agent using the form data. For traits and influences, assume a comma-separated list.
-    const newAgent: Agent = {
-      id: Date.now().toString(),
-      name: formData.name,
-      role: formData.role as "producer" | "validator",
-      traits: formData.traits.split(",").map(str => str.trim()).filter(Boolean),
-      style: formData.style,
-      influences: formData.influences.split(",").map(str => str.trim()).filter(Boolean),
-      mood: formData.mood,
-      api_key: formData.api_key,
-      endpoint: formData.endpoint,
-    };
-
-    setAgents([...agents, newAgent]);
-
-    // Reset the form and close the modal
-    setFormData({
-      name: "",
-      role: "producer",
-      traits: "",
-      style: "",
-      influences: "",
-      mood: "",
-      api_key: "",
-      endpoint: "",
-    });
-    setIsModalOpen(false);
-  };
+export default function AgentsPage() {
+  const {
+    agents,
+    isModalOpen,
+    addAgent,
+    openModal,
+    closeModal,
+    requiredAgents,
+    progressPercentage,
+  } = useAgentsManager();
 
   return (
     <>
       <Head>
-        <title>Start Chain - ChaosChain Agent Launchpad</title>
+        <title>Agent Configuration - ChaosChain Agent Launchpad</title>
         <meta name="viewport" content="width=device-width, initial-scale=1" />
       </Head>
-      <div className={`min-h-screen bg-gray-900 text-gray-100 p-8`}>
-        <h1 className="text-4xl font-bold mb-6">Start Chain</h1>
-        <button
-          className="bg-gradient-to-r from-purple-700 to-purple-900 hover:opacity-90 text-gray-100 font-medium py-3 px-6 rounded-lg transition-all duration-300 mb-6"
-          onClick={() => setIsModalOpen(true)}
-        >
-          Add Agent
-        </button>
 
-        <div>
-          <h2 className="text-2xl font-bold mb-4">Agents Added</h2>
-          {agents.length === 0 ? (
-            <p>No agents added yet.</p>
-          ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {agents.map((agent) => (
-                <div key={agent.id} className="bg-gray-800 p-4 rounded-lg">
-                  <h3 className="text-xl font-semibold mb-2">{agent.name}</h3>
-                  <p><strong>Role:</strong> {agent.role}</p>
-                  <p><strong>Traits:</strong> {agent.traits.join(", ")}</p>
-                  <p><strong>Style:</strong> {agent.style}</p>
-                  <p><strong>Influences:</strong> {agent.influences.join(", ")}</p>
-                  <p><strong>Mood:</strong> {agent.mood}</p>
-                  <p><strong>API Key:</strong> {agent.api_key}</p>
-                  <p><strong>Endpoint:</strong> {agent.endpoint}</p>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
+      {/* Outer container */}
+      <div
+        className={`min-h-screen bg-gray-900 text-gray-100 flex flex-col items-center justify-center p-8`}
+      >
+        <div className="w-full max-w-6xl">
+          {/* Header */}
+          <header className="mb-8">
+            <h1 className="text-4xl font-bold">ChaosChain Agent Launchpad</h1>
+            <p className="mt-2 text-sm text-gray-300">
+              Configure and manage your agents for ChaosChain Launchpad. Add new agents using the
+              panel on the left, and view your configuration details on the right.
+            </p>
+          </header>
 
-        {/* Modal for Adding an Agent */}
-        {isModalOpen && (
-          <div className="fixed inset-0 flex items-center justify-center bg-black bg-opacity-50 z-50">
-            <div className="bg-gray-800 p-6 rounded-lg w-full max-w-lg">
-              <div className="flex justify-between items-center mb-4">
-                <h2 className="text-2xl font-bold">Add New Agent</h2>
-                <button
-                  onClick={() => setIsModalOpen(false)}
-                  className="text-gray-300 hover:text-gray-100"
-                >
-                  X
-                </button>
+          {/* Main content: Left Panel and Agent List */}
+          <div className="flex flex-col md:flex-row gap-8 items-stretch h-[70vh]">
+            {/* Left Configuration Panel */}
+            <div className="flex-1 bg-gray-800 p-8 rounded-lg shadow-md flex flex-col">
+              <div className="mb-4">
+                <h2 className="text-2xl font-bold">Agent Setup</h2>
+                <p className="text-gray-300">
+                  Add agents to your network configuration. Once you have at least 3 agents, you
+                  can start the chain.
+                </p>
               </div>
-              <form onSubmit={handleSubmit} className="space-y-4">
-                <div>
-                  <label htmlFor="name" className="block mb-1">
-                    Name
-                  </label>
-                  <input
-                    type="text"
-                    name="name"
-                    id="name"
-                    value={formData.name}
-                    onChange={handleChange}
-                    required
-                    className="w-full p-2 rounded bg-gray-700 text-gray-100"
-                  />
+
+              {/* Progress Bar */}
+              <div className="mb-6">
+                <div className="flex justify-between mb-1">
+                  <span className="text-sm font-medium">
+                    {agents.length} / {requiredAgents} Agents Added
+                  </span>
+                  {agents.length >= requiredAgents && (
+                    <span className="text-sm text-green-400 flex items-center">
+                      Ready <FiCheck className="ml-1" />
+                    </span>
+                  )}
                 </div>
-                <div>
-                  <label htmlFor="role" className="block mb-1">
-                    Role
-                  </label>
-                  <select
-                    id="role"
-                    name="role"
-                    value={formData.role}
-                    onChange={handleChange}
-                    className="w-full p-2 rounded bg-gray-700 text-gray-100"
-                  >
-                    <option value="producer">Producer</option>
-                    <option value="validator">Validator</option>
-                  </select>
+                <div className="w-full bg-gray-700 rounded-full h-3">
+                  <div
+                    className="bg-gradient-to-r from-purple-600 to-purple-900 h-3 rounded-full transition-all duration-300"
+                    style={{ width: `${progressPercentage}%` }}
+                  ></div>
                 </div>
-                <div>
-                  <label htmlFor="traits" className="block mb-1">
-                    Traits (comma separated)
-                  </label>
-                  <input
-                    type="text"
-                    name="traits"
-                    id="traits"
-                    value={formData.traits}
-                    onChange={handleChange}
-                    className="w-full p-2 rounded bg-gray-700 text-gray-100"
-                  />
-                </div>
-                <div>
-                  <label htmlFor="style" className="block mb-1">
-                    Style
-                  </label>
-                  <input
-                    type="text"
-                    name="style"
-                    id="style"
-                    value={formData.style}
-                    onChange={handleChange}
-                    className="w-full p-2 rounded bg-gray-700 text-gray-100"
-                  />
-                </div>
-                <div>
-                  <label htmlFor="influences" className="block mb-1">
-                    Influences (comma separated)
-                  </label>
-                  <input
-                    type="text"
-                    name="influences"
-                    id="influences"
-                    value={formData.influences}
-                    onChange={handleChange}
-                    className="w-full p-2 rounded bg-gray-700 text-gray-100"
-                  />
-                </div>
-                <div>
-                  <label htmlFor="mood" className="block mb-1">
-                    Mood
-                  </label>
-                  <input
-                    type="text"
-                    name="mood"
-                    id="mood"
-                    value={formData.mood}
-                    onChange={handleChange}
-                    className="w-full p-2 rounded bg-gray-700 text-gray-100"
-                  />
-                </div>
-                
-                <div className="flex justify-end space-x-4">
-                  <button
-                    type="button"
-                    onClick={() => setIsModalOpen(false)}
-                    className="bg-gray-600 hover:bg-gray-500 text-gray-100 py-2 px-4 rounded"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="submit"
-                    className="bg-gradient-to-r from-purple-700 to-purple-900 hover:opacity-90 text-gray-100 font-medium py-2 px-4 rounded transition-all duration-300"
-                  >
-                    Save Agent
-                  </button>
-                </div>
-              </form>
+              </div>
+
+              {/* Start Chain Button */}
+              {agents.length >= requiredAgents && (
+                <button className="mb-6 flex items-center bg-gradient-to-r from-green-600 to-green-800 hover:opacity-90 text-gray-100 font-medium py-3 px-6 rounded-lg transition transform hover:scale-105 duration-200">
+                  <FiCheck className="mr-2" /> Start Chain
+                </button>
+              )}
+
+              {/* Add Agent Button */}
+              <button
+                onClick={openModal}
+                className="mt-auto flex items-center bg-gradient-to-r from-purple-700 to-purple-900 hover:opacity-90 text-gray-100 font-medium py-3 px-6 rounded-lg transition transform hover:scale-105 duration-200"
+              >
+                <FiPlus className="mr-2" /> Add Agent
+              </button>
             </div>
+
+            {/* Right Sidebar: Agents List */}
+            <aside className="w-full md:w-80 bg-gray-800 p-6 rounded-lg shadow-md flex flex-col">
+              <h2 className="text-2xl font-bold mb-4 text-center flex items-center justify-center">
+                <FiUser className="mr-2 text-purple-400" /> Agents List
+              </h2>
+              {agents.length === 0 ? (
+                <p className="text-center text-gray-400 flex-1 flex items-center justify-center">
+                  No agents added yet.
+                </p>
+              ) : (
+                <div className="space-y-4 flex-1 overflow-y-auto pr-2">
+                  {agents.map((agent) => (
+                    <div
+                      key={agent.id}
+                      className="p-4 bg-gray-900 rounded-lg hover:bg-gray-700 transition-colors duration-200"
+                    >
+                      <h3 className="text-xl font-semibold mb-2">{agent.name}</h3>
+                      <div className="grid grid-cols-2 gap-y-1 text-sm">
+                        <div className="font-semibold text-gray-400">Role</div>
+                        <div className="text-gray-200">{agent.role}</div>
+                        <div className="font-semibold text-gray-400">Traits</div>
+                        <div className="text-gray-200">{agent.traits.join(", ")}</div>
+                        <div className="font-semibold text-gray-400">Style</div>
+                        <div className="text-gray-200">{agent.style}</div>
+                        <div className="font-semibold text-gray-400">Influences</div>
+                        <div className="text-gray-200">{agent.influences.join(", ")}</div>
+                        <div className="font-semibold text-gray-400">Mood</div>
+                        <div className="text-gray-200">{agent.mood}</div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </aside>
           </div>
-        )}
+        </div>
       </div>
+
+      {/* Render Modal */}
+      {isModalOpen && (
+        <AddAgentModal onAddAgent={addAgent} onClose={closeModal} />
+      )}
     </>
   );
 }
