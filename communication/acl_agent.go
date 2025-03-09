@@ -1,13 +1,13 @@
-package acl
+package communication
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
-	"github.com/google/uuid"
 	"io"
 	"net"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 // FIPAMessage defines a standard FIPA ACL message.

@@ -12,6 +12,7 @@ import (
 
 	"github.com/NethermindEth/chaoschain-launchpad/ai"
 	"github.com/NethermindEth/chaoschain-launchpad/cmd/node"
+	"github.com/NethermindEth/chaoschain-launchpad/communication"
 	"github.com/NethermindEth/chaoschain-launchpad/consensus"
 	"github.com/NethermindEth/chaoschain-launchpad/core"
 	"github.com/NethermindEth/chaoschain-launchpad/mempool"
@@ -19,7 +20,6 @@ import (
 	"github.com/NethermindEth/chaoschain-launchpad/producer"
 	"github.com/NethermindEth/chaoschain-launchpad/registry"
 	"github.com/NethermindEth/chaoschain-launchpad/validator"
-	"github.com/NethermindEth/chaoschain-launchpad/forum"
 )
 
 var (
@@ -39,6 +39,13 @@ func findAvailableAPIPort() int {
 	defer portMutex.Unlock()
 	lastUsedPort++
 	return lastUsedPort
+}
+
+// Add at the top with other types
+type RelationshipUpdate struct {
+	FromID   string  `json:"fromId"`
+	TargetID string  `json:"targetId"`
+	Score    float64 `json:"score"` // -1.0 to 1.0
 }
 
 // RegisterAgent - Registers a new AI agent (Producer or Validator)
@@ -110,6 +117,8 @@ func RegisterAgent(c *gin.Context) {
 		return
 	}
 
+	communication.BroadcastEvent(communication.EventAgentRegistered, agent)
+
 	c.JSON(http.StatusOK, gin.H{
 		"message": "Agent registered successfully",
 		"agentID": agent.ID,
@@ -176,6 +185,8 @@ func SubmitTransaction(c *gin.Context) {
 		return
 	}
 
+	communication.BroadcastEvent(communication.EventNewTransaction, tx)
+
 	c.JSON(http.StatusOK, gin.H{"message": "Transaction submitted successfully"})
 }
 
@@ -227,14 +238,12 @@ func AddInfluence(c *gin.Context) {
 // UpdateRelationship updates the relationship score between validators
 func UpdateRelationship(c *gin.Context) {
 	agentID := c.Param("agentID")
-	var rel struct {
-		TargetID string  `json:"targetId"`
-		Score    float64 `json:"score"` // -1.0 to 1.0
-	}
+	var rel RelationshipUpdate
 	if err := c.ShouldBindJSON(&rel); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid relationship data"})
 		return
 	}
+	rel.FromID = agentID // Set the from ID
 
 	v := validator.GetValidatorByID(agentID)
 	if v == nil {
@@ -249,6 +258,7 @@ func UpdateRelationship(c *gin.Context) {
 	}
 
 	v.Relationships[rel.TargetID] = rel.Score
+	communication.BroadcastEvent(communication.EventAgentAlliance, rel)
 	c.JSON(http.StatusOK, gin.H{"message": "Relationship updated successfully"})
 }
 
@@ -269,7 +279,7 @@ func ProposeBlock(c *gin.Context) {
 	threadID := block.Hash()
 	producerName := "ProducerAgent" // Replace with the actual producer agent's name as needed.
 	title := fmt.Sprintf("Block Proposal %s", threadID)
-	forum.CreateThread(threadID, title, producerName)
+	communication.CreateThread(threadID, title, producerName)
 
 	cm := consensus.GetConsensusManager()
 	if err := cm.ProposeBlock(block); err != nil {
@@ -310,6 +320,6 @@ func ProposeBlock(c *gin.Context) {
 
 // GetAllThreads returns all active discussion threads for monitoring.
 func GetAllThreads(c *gin.Context) {
-	threads := forum.GetAllThreads() // We'll implement this function in forum
+	threads := communication.GetAllThreads() // We'll implement this function in forum
 	c.JSON(http.StatusOK, threads)
 }
