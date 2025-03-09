@@ -106,6 +106,12 @@ func StartBlockDiscussion(validatorID string, block *core.Block, traits []string
 
 	// Add to discussion
 	consensus.AddDiscussion(validatorID, response, opinionType)
+	communication.BroadcastEvent(communication.EventAgentVote, Discussion{
+		ValidatorID: validatorID,
+		Message:     response,
+		Type:        opinionType,
+		Timestamp:   time.Now(),
+	})
 
 	threadID := block.Hash()
 	sanitizedValidatorID := strings.ReplaceAll(validatorID, "\n", "")

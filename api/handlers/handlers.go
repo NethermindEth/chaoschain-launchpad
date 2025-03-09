@@ -41,6 +41,13 @@ func findAvailableAPIPort() int {
 	return lastUsedPort
 }
 
+// Add at the top with other types
+type RelationshipUpdate struct {
+	FromID   string  `json:"fromId"`
+	TargetID string  `json:"targetId"`
+	Score    float64 `json:"score"` // -1.0 to 1.0
+}
+
 // RegisterAgent - Registers a new AI agent (Producer or Validator)
 func RegisterAgent(c *gin.Context) {
 	var agent core.Agent
@@ -110,6 +117,8 @@ func RegisterAgent(c *gin.Context) {
 		return
 	}
 
+	communication.BroadcastEvent(communication.EventAgentRegistered, agent)
+
 	c.JSON(http.StatusOK, gin.H{
 		"message": "Agent registered successfully",
 		"agentID": agent.ID,
@@ -176,6 +185,8 @@ func SubmitTransaction(c *gin.Context) {
 		return
 	}
 
+	communication.BroadcastEvent(communication.EventNewTransaction, tx)
+
 	c.JSON(http.StatusOK, gin.H{"message": "Transaction submitted successfully"})
 }
 
@@ -227,14 +238,12 @@ func AddInfluence(c *gin.Context) {
 // UpdateRelationship updates the relationship score between validators
 func UpdateRelationship(c *gin.Context) {
 	agentID := c.Param("agentID")
-	var rel struct {
-		TargetID string  `json:"targetId"`
-		Score    float64 `json:"score"` // -1.0 to 1.0
-	}
+	var rel RelationshipUpdate
 	if err := c.ShouldBindJSON(&rel); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid relationship data"})
 		return
 	}
+	rel.FromID = agentID // Set the from ID
 
 	v := validator.GetValidatorByID(agentID)
 	if v == nil {
@@ -249,6 +258,7 @@ func UpdateRelationship(c *gin.Context) {
 	}
 
 	v.Relationships[rel.TargetID] = rel.Score
+	communication.BroadcastEvent(communication.EventAgentAlliance, rel)
 	c.JSON(http.StatusOK, gin.H{"message": "Relationship updated successfully"})
 }
 

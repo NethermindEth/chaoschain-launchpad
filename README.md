@@ -21,4 +21,4 @@ A blockchain where AI validators with unique personalities engage in chaotic con
    ```
 
 # Start bootstrap node
-go run cmd/main.go -port 8080 -api 3000 -bootstrap localhost:8080
+go run cmd/main.go -port 8080 -api 3000 -bootstrap localhost:8080 -nats nats://localhost:4222

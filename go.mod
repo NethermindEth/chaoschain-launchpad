@@ -5,12 +5,13 @@ go 1.24.0
 require (
 	github.com/gin-gonic/gin v1.10.0
 	github.com/google/uuid v1.6.0
+	github.com/gorilla/websocket v1.5.3
+	github.com/nats-io/nats.go v1.39.1
 	github.com/sashabaranov/go-openai v1.38.0
 )
 
 require (
 	github.com/klauspost/compress v1.17.9 // indirect
-	github.com/nats-io/nats.go v1.39.1 // indirect
 	github.com/nats-io/nkeys v0.4.9 // indirect
 	github.com/nats-io/nuid v1.0.1 // indirect
 )

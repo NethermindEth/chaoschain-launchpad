@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/NethermindEth/chaoschain-launchpad/communication"
 	"github.com/NethermindEth/chaoschain-launchpad/core"
 )
 
@@ -170,6 +171,37 @@ func (cm *ConsensusManager) runConsensusProcess() {
 	}
 	log.Printf("Final consensus result for block %d: %+v", cm.activeConsensus.Block.Height, result)
 	cm.notifySubscribers(int64(cm.activeConsensus.Block.Height), result)
+
+	// Broadcast result to WebSocket clients
+	communication.BroadcastEvent(communication.EventBlockVerdict, result)
+
+	// Also broadcast detailed voting result
+	votingResult := struct {
+		BlockHeight int64          `json:"blockHeight"`
+		State       ConsensusState `json:"state"`
+		Support     int            `json:"support"`
+		Oppose      int            `json:"oppose"`
+		Accepted    bool           `json:"accepted"`
+		Reason      string         `json:"reason"`
+	}{
+		BlockHeight: int64(cm.activeConsensus.Block.Height),
+		State:       cm.activeConsensus.State,
+		Support:     support,
+		Oppose:      oppose,
+		Accepted:    cm.activeConsensus.State == Accepted,
+		Reason:      getConsensusReason(support, oppose, totalVotes),
+	}
+	communication.BroadcastEvent(communication.EventVotingResult, votingResult)
+}
+
+func getConsensusReason(support, oppose, total int) string {
+	if total < MinimumValidators {
+		return "Insufficient validator participation"
+	}
+	if float64(support)/float64(total) > 0.5 {
+		return "Majority support achieved"
+	}
+	return "Insufficient support"
 }
 
 // GetActiveConsensus returns the current consensus state
