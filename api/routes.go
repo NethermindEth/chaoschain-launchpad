@@ -20,4 +20,7 @@ func SetupRoutes(router *gin.Engine) {
 		api.POST("/block/propose", handlers.ProposeBlock)
 		api.GET("/forum/threads", handlers.GetAllThreads)
 	}
+
+	// WebSocket endpoint
+	router.GET("/ws", handlers.HandleWebSocket)
 }

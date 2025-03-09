@@ -5,10 +5,10 @@ import (
 	"fmt"
 	"log"
 
-	"github.com/NethermindEth/chaoschain-launchpad/core"
 	"github.com/NethermindEth/chaoschain-launchpad/api"
 	"github.com/NethermindEth/chaoschain-launchpad/cmd/node"
 	_ "github.com/NethermindEth/chaoschain-launchpad/config" // Initialize config
+	"github.com/NethermindEth/chaoschain-launchpad/core"
 	"github.com/gin-gonic/gin"
 )
 
@@ -17,6 +17,7 @@ func main() {
 	port := flag.Int("port", 8080, "P2P port")
 	apiPort := flag.Int("api", 3000, "API port")
 	bootstrapNode := flag.String("bootstrap", "", "Bootstrap node address")
+	nats := flag.String("nats", "nats://localhost:4222", "NATS URL")
 	flag.Parse()
 
 	// Create and start node
@@ -31,8 +32,10 @@ func main() {
 	}
 
 	// Start NATS messaging
-	core.SetupNATS("nats://localhost:4222")
-	defer core.NatsBrokerInstance.Close()
+	if *nats != "" {
+		core.SetupNATS(*nats)
+		defer core.NatsBrokerInstance.Close()
+	}
 
 	log.Println("Application started with NATS messaging enabled.")
 
