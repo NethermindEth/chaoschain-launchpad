@@ -88,11 +88,11 @@ func StartBlockDiscussion(validatorID string, block *core.Block, traits []string
 		return
 	}
 
-	// Format transactions for analysis
+	// // Format transactions for analysis
 	var txContents []string
 	for _, tx := range block.Txs {
-		txContents = append(txContents, fmt.Sprintf("- From %s: \"%s\" (Amount: %.2f)",
-			tx.From, tx.Content, tx.Amount))
+		txContents = append(txContents, fmt.Sprintf("Content: %s",
+			tx.Content))
 	}
 
 	// Participate in discussion rounds
@@ -101,18 +101,17 @@ func StartBlockDiscussion(validatorID string, block *core.Block, traits []string
 		previousDiscussions := consensus.GetDiscussionContext(round)
 
 		// Generate discussion for this round
-		prompt := fmt.Sprintf(`You are %s, a blockchain validator with traits: %v.
+		prompt := fmt.Sprintf(`You are %s, a validator with the traits of being: %v.
 
-			Block details:
-			- Height: %d
-			- Transactions:
+			Topic of discussion:
 			%s
 
+			Previous discussions:
 			%s
 
 			Discussion Round %d/%d:
 			Consider the previous discussions and share your thoughts about:
-			1. The transaction contents and their implications
+			1. The topic of discussion according to your personality and their implications
 			2. Other validators' perspectives
 			3. Your personality's reaction to both
 
@@ -120,7 +119,7 @@ func StartBlockDiscussion(validatorID string, block *core.Block, traits []string
 			1. Your opinion (1 sentence)
 			2. Your stance (SUPPORT/OPPOSE/QUESTION)
 			3. A brief reason why, referencing specific transaction content`,
-			name, traits, block.Height, strings.Join(txContents, "\n"),
+			name, traits, strings.Join(txContents, "\n"),
 			previousDiscussions, round, DiscussionRounds)
 
 		response := ai.GenerateLLMResponse(prompt)
@@ -150,19 +149,19 @@ func StartBlockDiscussion(validatorID string, block *core.Block, traits []string
 	}
 
 	// After discussions, make final vote
-	finalPrompt := fmt.Sprintf(`You are %s, making a final decision about block %d.
+	finalPrompt := fmt.Sprintf(`You are %s, making a final decision about the topic %s.
 
 		Review all discussions:
 		%s
 
-		Based on the complete discussion, should this block be accepted?
+		Based on the complete discussion, should this topic be accepted?
 		Consider:
 		1. The overall sentiment from discussions
 		2. Your personality traits: %v
-		3. The transaction contents
+		3. The topic of discussion according to your personality and their implications
 
 		Respond with SUPPORT or OPPOSE and a brief reason why.`,
-		name, block.Height, consensus.GetDiscussionContext(DiscussionRounds+1), traits)
+		name, txContents, consensus.GetDiscussionContext(DiscussionRounds+1), traits)
 
 	finalResponse := ai.GenerateLLMResponse(finalPrompt)
 

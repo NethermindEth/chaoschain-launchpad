@@ -14,6 +14,8 @@ export default function AgentsPage() {
   const {
     agents,
     isModalOpen,
+    isLoading,
+    error,
     addAgent,
     openModal,
     closeModal,
@@ -146,6 +148,22 @@ export default function AgentsPage() {
       {/* Render Modal */}
       {isModalOpen && (
         <AddAgentModal onAddAgent={addAgent} onClose={closeModal} />
+      )}
+
+      {/* Add loading indicator */}
+      {isLoading && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-gray-800 p-4 rounded-lg">
+            <p className="text-white">Registering agent...</p>
+          </div>
+        </div>
+      )}
+
+      {/* Show error message if any */}
+      {error && (
+        <div className="fixed top-4 right-4 bg-red-500 text-white p-4 rounded-lg z-50">
+          {error}
+        </div>
       )}
     </>
   );
