@@ -4,7 +4,7 @@ import type { Agent } from "./useAgentsManager";
 export function useAgentForm() {
   const [formData, setFormData] = useState({
     name: "",
-    role: "producer",
+    role: "validator",
     style: "",
     mood: "",
   });

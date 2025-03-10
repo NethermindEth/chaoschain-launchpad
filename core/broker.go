@@ -4,8 +4,54 @@ import (
 	"log"
 	"time"
 
+	"github.com/nats-io/nats-server/v2/server"
 	"github.com/nats-io/nats.go"
 )
+
+var NatsBrokerInstance *nats.Conn
+var natsServer *server.Server
+
+func SetupNATS(natsURL string) {
+	var err error
+	// Try connecting first
+	NatsBrokerInstance, err = nats.Connect(natsURL)
+	if err != nil {
+		log.Printf("Could not connect to NATS at %s, starting embedded server...", natsURL)
+
+		// Start embedded NATS server
+		opts := &server.Options{
+			Port:   4222,
+			Host:   "localhost",
+			NoLog:  false,
+			NoSigs: true,
+		}
+
+		natsServer, _ = server.NewServer(opts)
+		go natsServer.Start()
+
+		// Wait for server to be ready
+		if !natsServer.ReadyForConnections(4 * time.Second) {
+			log.Fatal("NATS server failed to start")
+		}
+		log.Println("Started embedded NATS server on port 4222")
+
+		// Try connecting again
+		NatsBrokerInstance, err = nats.Connect("nats://localhost:4222")
+		if err != nil {
+			log.Fatalf("Failed to connect to embedded NATS: %v", err)
+		}
+	}
+	log.Printf("Connected to NATS at %s", natsURL)
+}
+
+func CloseNATS() {
+	if NatsBrokerInstance != nil {
+		NatsBrokerInstance.Close()
+	}
+	if natsServer != nil {
+		natsServer.Shutdown()
+	}
+}
 
 // NATSBroker encapsulates a NATS connection.
 type NATSBroker struct {
@@ -38,17 +84,4 @@ func (b *NATSBroker) Subscribe(subject string, cb nats.MsgHandler) error {
 // Close gracefully closes the connection.
 func (b *NATSBroker) Close() {
 	b.Conn.Close()
-}
-
-// Global instance of the NATS broker.
-var NatsBrokerInstance *NATSBroker
-
-// SetupNATS initializes the global NATS broker. Call this function at startup.
-func SetupNATS(url string) {
-	broker, err := NewNATSBroker(url)
-	if err != nil {
-		log.Fatalf("Failed to connect to NATS: %v", err)
-	}
-	NatsBrokerInstance = broker
-	log.Printf("Connected to NATS at %s", url)
 }

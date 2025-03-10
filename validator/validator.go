@@ -8,9 +8,9 @@ import (
 	"sync"
 
 	"github.com/NethermindEth/chaoschain-launchpad/ai"
+	"github.com/NethermindEth/chaoschain-launchpad/consensus"
 	"github.com/NethermindEth/chaoschain-launchpad/core"
 	"github.com/NethermindEth/chaoschain-launchpad/p2p"
-	"github.com/NethermindEth/chaoschain-launchpad/consensus"
 	"github.com/nats-io/nats.go"
 )
 
@@ -54,7 +54,7 @@ func NewValidator(id string, name string, traits []string, style string, influen
 	validatorsMutex.Unlock()
 
 	// Subscribe to the BLOCK_DISCUSSION_TRIGGER events via NATS.
-	if err := core.NatsBrokerInstance.Subscribe("BLOCK_DISCUSSION_TRIGGER", func(m *nats.Msg) {
+	if _, err := core.NatsBrokerInstance.Subscribe("BLOCK_DISCUSSION_TRIGGER", func(m *nats.Msg) {
 		var block core.Block
 		if err := json.Unmarshal(m.Data, &block); err != nil {
 			log.Printf("Error unmarshalling block in discussion trigger: %v", err)

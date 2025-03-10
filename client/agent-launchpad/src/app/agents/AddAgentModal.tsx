@@ -31,12 +31,17 @@ export default function AddAgentModal({
   } = useAgentForm();
 
   // Form submission: build the agent and pass it to the parent
-  const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    const newAgent = buildAgent();
-    onAddAgent(newAgent);
-    resetForm();
-    onClose();
+    try {
+      const agent = buildAgent();
+      await onAddAgent(agent);
+      resetForm();
+      onClose();
+    } catch (error) {
+      console.error('Failed to add agent:', error);
+      // You might want to show an error message to the user here
+    }
   };
 
   return (
@@ -81,8 +86,8 @@ export default function AddAgentModal({
               onChange={handleChange}
               className="w-full p-2 rounded bg-gray-700 text-gray-100"
             >
-              <option value="producer">Producer</option>
               <option value="validator">Validator</option>
+              <option value="producer">Producer</option>
             </select>
           </div>
           {/* Traits Section */}

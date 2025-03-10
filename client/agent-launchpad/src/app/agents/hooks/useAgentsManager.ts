@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { registerAgent, ApiError } from "@/services/api";
 
 // Shared Agent interface
 export interface Agent {
@@ -14,9 +15,25 @@ export interface Agent {
 export function useAgentsManager() {
   const [agents, setAgents] = useState<Agent[]>([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  const addAgent = (agent: Agent) => {
-    setAgents((prev) => [...prev, agent]);
+  const addAgent = async (agent: Agent) => {
+    setIsLoading(true);
+    setError(null);
+    try {
+      const response = await registerAgent(agent);
+      setAgents(prev => [...prev, { ...agent, id: response.agentID }]);
+      return response;
+    } catch (err) {
+      const errorMessage = err instanceof ApiError 
+        ? err.message 
+        : 'Failed to register agent';
+      setError(errorMessage);
+      throw err;
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const openModal = () => setIsModalOpen(true);
@@ -28,6 +45,8 @@ export function useAgentsManager() {
   return {
     agents,
     isModalOpen,
+    isLoading,
+    error,
     addAgent,
     openModal,
     closeModal,
