@@ -146,15 +146,11 @@ func StartBlockDiscussion(validatorID string, block *core.Block, traits []string
 		Do not include any additional text or formatting.`,	
 		name, traits, block.Height, strings.Join(txContents, "\n"), previousDiscussions, round, DiscussionRounds)
 
-
-		fmt.Println("Prompt:", prompt)
 		response := ai.GenerateLLMResponse(prompt)
-		fmt.Println("LLM Response:", response)
 
 		var llmResult LLMResponse
 		if err := json.Unmarshal([]byte(response), &llmResult); err != nil {
 			fmt.Println("Error parsing LLM response:", err)
-			// Handle the error appropriately.
 		} else {
 			fmt.Println("Opinion:", llmResult.Opinion)
 			fmt.Println("Stance:", llmResult.Stance)
@@ -194,13 +190,8 @@ func StartBlockDiscussion(validatorID string, block *core.Block, traits []string
 	Do not include any additional text or formatting.`,
 	name, txContents, consensus.GetDiscussionContext(DiscussionRounds+1))
 
-		fmt.Println("Final Prompt:", finalPrompt)
 	finalResponse := ai.GenerateLLMResponse(finalPrompt)
 	
-	// Print the raw final LLM response.
-	fmt.Println("Final Vote LLM Response:", finalResponse)
-
-	// Define a struct to parse the final vote JSON.
 	type FinalVoteResponse struct {
 		Stance string `json:"stance"`
 		Reason string `json:"reason"`
