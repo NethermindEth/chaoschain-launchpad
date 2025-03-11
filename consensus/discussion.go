@@ -1,6 +1,7 @@
 package consensus
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -11,6 +12,14 @@ import (
 	"github.com/NethermindEth/chaoschain-launchpad/p2p"
 )
 
+// LLMResponse represents the expected structure of the response coming from the LLM.
+type LLMResponse struct {
+	Opinion string `json:"opinion"`
+	Stance  string `json:"stance"`
+	Reason  string `json:"reason"`
+}
+
+// Discussion represents a discussion message from a validator.
 type Discussion struct {
 	ValidatorID string    `json:"validatorId"`
 	Message     string    `json:"message"`
@@ -101,46 +110,61 @@ func StartBlockDiscussion(validatorID string, block *core.Block, traits []string
 		previousDiscussions := consensus.GetDiscussionContext(round)
 
 		// Generate discussion for this round
-		prompt := fmt.Sprintf(`You are %s, a blockchain validator with traits: %v.
+		prompt := fmt.Sprintf(`You are %s, a blockchainvalidator with the following traits: %v.
 
-			Block details:
-			- Height: %d
-			- Transactions:
-			%s
+		Block details:
+		- Height: %d
+		- Transactions/statement of topic: %s
 
-			%s
+		Previous discussions:
+		%s
 
-			Discussion Round %d/%d:
-			Consider the previous discussions and share your thoughts about:
-			1. The transaction contents and their implications
-			2. Other validators' perspectives
-			3. Your personality's reaction to both
+		Discussion Round %d/%d:
+		Analyze the statement of the topic by considering:
+		1. The exact wording of the statement.
+		2. The viewpoints expressed by other validators in previous discussions.
+		3. Your personal reaction based on your personality and analysis.
+		4. Insights from previous discussions.
 
-			Respond with:
-			1. Your opinion (1 sentence)
-			2. Your stance (SUPPORT/OPPOSE/QUESTION)
-			3. A brief reason why, referencing specific transaction content`,
-			name, traits, block.Height, strings.Join(txContents, "\n"),
-			previousDiscussions, round, DiscussionRounds)
+		Based on your analysis, you need to provide
+		1. An opinion on the topic statement.
+		2. A stance on the topic statement (SUPPORT, OPPOSE, or QUESTION).
+		3. A reason for your stance.
+
+		Important: Your analysis must be fully consistent. This means:
+		- If you agree with the statement and think the statement is true, your "stance" must be "SUPPORT".
+		- If you disagree with the statement and think the statement is false, your "stance" must be "OPPOSE".
+		- If you are unsure, then use "QUESTION".
+		Additionally, ensure that your "opinion", "stance", and "reason" all clearly align. For example, if your opinion and reason indicate that the statement is false, then your stance must be "OPPOSE".
+
+		Please respond with exactly a JSON object with the following keys:
+		{
+		"opinion": "A one-sentence opinion summarizing your analysis of the topic statement.",
+		"stance": "Either SUPPORT, OPPOSE, or QUESTION",
+		"reason": "A brief explanation for your stance, referencing specific evidence or points from the discussions."
+		}
+		Do not include any additional text or formatting.`,	
+		name, traits, block.Height, strings.Join(txContents, "\n"), previousDiscussions, round, DiscussionRounds)
 
 		response := ai.GenerateLLMResponse(prompt)
 
-		// Parse AI response to determine type
-		opinionType := "question" // default
-		if strings.Contains(strings.ToUpper(response), "SUPPORT") {
-			opinionType = "support"
-		} else if strings.Contains(strings.ToUpper(response), "OPPOSE") {
-			opinionType = "oppose"
+		var llmResult LLMResponse
+		if err := json.Unmarshal([]byte(response), &llmResult); err != nil {
+			fmt.Println("Error parsing LLM response:", err)
+		} else {
+			fmt.Println("Opinion:", llmResult.Opinion)
+			fmt.Println("Stance:", llmResult.Stance)
+			fmt.Println("Reason:", llmResult.Reason)
 		}
 
 		// Add to discussion
-		consensus.AddDiscussion(validatorID, response, opinionType, round)
+		consensus.AddDiscussion(validatorID, llmResult.Opinion + " " + llmResult.Reason, llmResult.Stance, round)
 
 		// Broadcast via WebSocket
 		communication.BroadcastEvent(communication.EventAgentVote, Discussion{
 			ValidatorID: validatorID,
-			Message:     response,
-			Type:        opinionType,
+			Message:     llmResult.Opinion + " " + llmResult.Reason,
+			Type:        llmResult.Stance,
 			Round:       round,
 			Timestamp:   time.Now(),
 		})
@@ -150,26 +174,38 @@ func StartBlockDiscussion(validatorID string, block *core.Block, traits []string
 	}
 
 	// After discussions, make final vote
-	finalPrompt := fmt.Sprintf(`You are %s, making a final decision about block %d.
+	finalPrompt := fmt.Sprintf(`You are %s, making a final decision regarding the topic: "%s".
+	Review all discussions:
+	%s
 
-		Review all discussions:
-		%s
+	Based on your comprehensive review, determine whether the topic statement is correct. Your analysis must be fully consistent:
+	- You think the statement is true, your stance must be "SUPPORT".
+	- You think the statement is false, your stance must be "OPPOSE".
 
-		Based on the complete discussion, should this block be accepted?
-		Consider:
-		1. The overall sentiment from discussions
-		2. Your personality traits: %v
-		3. The transaction contents
-
-		Respond with SUPPORT or OPPOSE and a brief reason why.`,
-		name, block.Height, consensus.GetDiscussionContext(DiscussionRounds+1), traits)
+	Please respond with exactly a JSON object with the following keys:
+	{
+	"stance": "Either SUPPORT, OPPOSE — must be consistent with your analysis.",
+	"reason": "A brief explanation stating why, referencing specific evidence from the discussions."
+	}
+	Do not include any additional text or formatting.`,
+	name, txContents, consensus.GetDiscussionContext(DiscussionRounds+1))
 
 	finalResponse := ai.GenerateLLMResponse(finalPrompt)
+	
+	type FinalVoteResponse struct {
+		Stance string `json:"stance"`
+		Reason string `json:"reason"`
+	}
 
-	// Parse final vote
-	voteType := "oppose"
-	if strings.Contains(strings.ToUpper(finalResponse), "SUPPORT") {
-		voteType = "support"
+	var finalVote FinalVoteResponse
+	err := json.Unmarshal([]byte(finalResponse), &finalVote)
+	var voteType string
+	if err != nil {
+		fmt.Println("Error parsing final vote response:", err)
+		// Fallback to a default vote if JSON parsing fails.
+		voteType = "oppose"
+	} else {
+		voteType = strings.ToLower(finalVote.Stance)
 	}
 
 	// Record final vote
