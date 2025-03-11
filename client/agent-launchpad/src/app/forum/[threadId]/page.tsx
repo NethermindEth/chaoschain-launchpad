@@ -4,7 +4,7 @@ import Head from "next/head";
 import Link from "next/link";
 import { useParams, useSearchParams } from "next/navigation";
 import { FiArrowLeft } from "react-icons/fi";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { wsService } from "@/services/websocket";
 
 interface AgentVote {
@@ -47,6 +47,16 @@ export default function ThreadDetailPage() {
   const [blockVerdict, setBlockVerdict] = useState<any | null>(null);
   const [validators, setValidators] = useState<{ [key: string]: string }>({});
 
+  // Use a ref to prevent duplicate "AGENT_VOTE" subscriptions
+  const subscribedRef = useRef({
+    agentVote: false,
+    votingResult: false,
+    blockVerdict: false,
+  });
+
+  // Ref for deduplication of AGENT_VOTE events.
+  const receivedVotes = useRef(new Set<string>());
+
   // Get transaction from URL params
   const transaction = {
     content: searchParams.get('content') || '',
@@ -61,40 +71,71 @@ export default function ThreadDetailPage() {
     // Connect to WebSocket
     wsService.connect();
 
-    // Subscribe to events
-    wsService.subscribe('AGENT_VOTE', (payload: AgentVote) => {
+    // AgentVote handler with deduplication.
+    const handleAgentVote = (payload: AgentVote) => {
+      // Create a unique id (using validatorId and timestamp).
+      const uniqueId = `${payload.validatorId}-${payload.timestamp}`;
+      if (receivedVotes.current.has(uniqueId)) {
+        // Already processed this vote.
+        return;
+      }
+      receivedVotes.current.add(uniqueId);
+      console.log("AGENT_VOTE received:", payload);
       setReplies(prev => [...prev, payload]);
-    });
+    };
 
-    wsService.subscribe('VOTING_RESULT', (payload: VotingResult) => {
+    const handleVotingResult = (payload: VotingResult) => {
+      console.log("VOTING_RESULT received:", payload);
       setVotingResult(payload);
-    });
+    };
 
-    wsService.subscribe('BLOCK_VERDICT', (payload) => {
+    const handleBlockVerdict = (payload: any) => {
+      console.log("BLOCK_VERDICT received:", payload);
       setBlockVerdict(payload);
-    });
+    };
 
-    // Propose block when component mounts
+    // Subscribe using the ref guard.
+    if (!subscribedRef.current.agentVote) {
+      wsService.subscribe("AGENT_VOTE", handleAgentVote);
+      subscribedRef.current.agentVote = true;
+    }
+
+    if (!subscribedRef.current.votingResult) {
+      wsService.subscribe("VOTING_RESULT", handleVotingResult);
+      subscribedRef.current.votingResult = true;
+    }
+
+    if (!subscribedRef.current.blockVerdict) {
+      wsService.subscribe("BLOCK_VERDICT", handleBlockVerdict);
+      subscribedRef.current.blockVerdict = true;
+    }
+
+    // Propose block when the component mounts
     const proposeBlock = async () => {
       try {
-        const response = await fetch('http://127.0.0.1:3000/api/block/propose?wait=true', {
-          method: 'POST',
+        const response = await fetch("http://127.0.0.1:3000/api/block/propose?wait=true", {
+          method: "POST",
         });
         if (!response.ok) {
-          throw new Error('Failed to propose block');
+          throw new Error("Failed to propose block");
         }
       } catch (error) {
-        console.error('Error proposing block:', error);
+        console.error("Error proposing block:", error);
       }
     };
 
     proposeBlock();
 
-    // Cleanup subscriptions
+    // Cleanup subscriptions when the component unmounts
     return () => {
-      wsService.unsubscribe('AGENT_VOTE', () => {});
-      wsService.unsubscribe('VOTING_RESULT', () => {});
-      wsService.unsubscribe('BLOCK_VERDICT', () => {});
+      wsService.unsubscribe("AGENT_VOTE", handleAgentVote);
+      wsService.unsubscribe("VOTING_RESULT", handleVotingResult);
+      wsService.unsubscribe("BLOCK_VERDICT", handleBlockVerdict);
+
+      // Reset our refs on unmount, so that if the component mounts again, subscriptions are added once.
+      subscribedRef.current.agentVote = false;
+      subscribedRef.current.votingResult = false;
+      subscribedRef.current.blockVerdict = false;
     };
   }, []);
 
