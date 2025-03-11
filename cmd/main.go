@@ -32,10 +32,8 @@ func main() {
 	}
 
 	// Start NATS messaging
-	if *nats != "" {
-		core.SetupNATS(*nats)
-		defer core.NatsBrokerInstance.Close()
-	}
+	core.SetupNATS(*nats)
+	defer core.CloseNATS()
 
 	log.Println("Application started with NATS messaging enabled.")
 

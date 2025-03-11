@@ -2,7 +2,6 @@ package consensus
 
 import (
 	"fmt"
-	"log"
 	"strings"
 	"time"
 
@@ -13,11 +12,17 @@ import (
 )
 
 type Discussion struct {
-	ValidatorID string
-	Message     string
-	Timestamp   time.Time
-	Type        string // "support", "oppose", "question", etc.
+	ValidatorID string    `json:"validatorId"`
+	Message     string    `json:"message"`
+	Timestamp   time.Time `json:"timestamp"`
+	Type        string    `json:"type"`  // "comment", "support", "oppose", "question"
+	Round       int       `json:"round"` // Which discussion round (1-5)
 }
+
+const (
+	DiscussionRounds = 5
+	RoundDuration    = 5 * time.Second // Time per round
+)
 
 // BlockOpinion represents a validator's analysis of a block
 type BlockOpinion struct {
@@ -26,7 +31,7 @@ type BlockOpinion struct {
 }
 
 // AddDiscussion adds a new discussion point about a block
-func (bc *BlockConsensus) AddDiscussion(validatorID, message, discussionType string) {
+func (bc *BlockConsensus) AddDiscussion(validatorID, message, discussionType string, round int) {
 	bc.mu.Lock()
 	defer bc.mu.Unlock()
 
@@ -35,6 +40,7 @@ func (bc *BlockConsensus) AddDiscussion(validatorID, message, discussionType str
 		Message:     message,
 		Timestamp:   time.Now(),
 		Type:        discussionType,
+		Round:       round,
 	}
 
 	bc.Discussions = append(bc.Discussions, discussion)
@@ -53,79 +59,127 @@ func (bc *BlockConsensus) GetDiscussions() []Discussion {
 	return bc.Discussions
 }
 
-// StartBlockDiscussion initiates a validator's discussion about a block
+// GetDiscussionContext formats all previous discussions for AI context
+func (bc *BlockConsensus) GetDiscussionContext(currentRound int) string {
+	bc.mu.RLock()
+	defer bc.mu.RUnlock()
+
+	var context strings.Builder
+	context.WriteString("Previous discussions:\n\n")
+
+	for round := 1; round < currentRound; round++ {
+		context.WriteString(fmt.Sprintf("Round %d:\n", round))
+		for _, d := range bc.Discussions {
+			if d.Round == round {
+				context.WriteString(fmt.Sprintf("- %s: %s\n", d.ValidatorID, d.Message))
+			}
+		}
+		context.WriteString("\n")
+	}
+
+	return context.String()
+}
+
+// StartBlockDiscussion initiates multi-round discussion
 func StartBlockDiscussion(validatorID string, block *core.Block, traits []string, name string) {
-	// Get active consensus
 	cm := GetConsensusManager()
 	consensus := cm.GetActiveConsensus()
 	if consensus == nil {
 		return
 	}
 
-	// Format transactions with their content for analysis
+	// // Format transactions for analysis
 	var txContents []string
 	for _, tx := range block.Txs {
-		txContents = append(txContents, fmt.Sprintf("- From %s: \"%s\" (Amount: %.2f)",
-			tx.From, tx.Content, tx.Amount))
+		txContents = append(txContents, fmt.Sprintf("Content: %s",
+			tx.Content))
 	}
 
-	// Generate opinion using validator traits and block analysis
-	prompt := fmt.Sprintf(`You are %s, a blockchain validator with traits: %v.
-	
-	Analyze this block:
-	- Height: %d
-	- Number of transactions: %d
-	- Total value: %.2f
-	
-	Transaction contents:
-	%s
-	
-	Consider:
-	1. The content and intent of the transactions
-	2. Your personality traits and how they align with these transactions
-	3. Network impact and social implications
-	
-	Respond with:
-	1. Your opinion (1 sentence)
-	2. Your stance (SUPPORT/OPPOSE/QUESTION)
-	3. A brief reason why, referencing specific transaction content`,
-		name, traits, block.Height, len(block.Txs),
-		calculateTotalValue(block.Txs),
-		strings.Join(txContents, "\n"))
+	// Participate in discussion rounds
+	for round := 1; round <= DiscussionRounds; round++ {
+		// Get context from previous rounds
+		previousDiscussions := consensus.GetDiscussionContext(round)
 
-	response := ai.GenerateLLMResponse(prompt)
-	log.Printf("Validator %s response: %s", name, response)
+		// Generate discussion for this round
+		prompt := fmt.Sprintf(`You are %s, a validator with the traits of being: %v.
 
-	// Parse AI response to determine type
-	opinionType := "question" // default
-	if strings.Contains(strings.ToUpper(response), "SUPPORT") {
-		opinionType = "support"
-	} else if strings.Contains(strings.ToUpper(response), "OPPOSE") {
-		opinionType = "oppose"
+			Topic of discussion:
+			%s
+
+			Previous discussions:
+			%s
+
+			Discussion Round %d/%d:
+			Consider the previous discussions and share your thoughts about:
+			1. The topic of discussion according to your personality and their implications
+			2. Other validators' perspectives
+			3. Your personality's reaction to both
+
+			Respond with:
+			1. Your opinion (1 sentence)
+			2. Your stance (SUPPORT/OPPOSE/QUESTION)
+			3. A brief reason why, referencing specific transaction content`,
+			name, traits, strings.Join(txContents, "\n"),
+			previousDiscussions, round, DiscussionRounds)
+
+		response := ai.GenerateLLMResponse(prompt)
+
+		// Parse AI response to determine type
+		opinionType := "question" // default
+		if strings.Contains(strings.ToUpper(response), "SUPPORT") {
+			opinionType = "support"
+		} else if strings.Contains(strings.ToUpper(response), "OPPOSE") {
+			opinionType = "oppose"
+		}
+
+		// Add to discussion
+		consensus.AddDiscussion(validatorID, response, opinionType, round)
+
+		// Broadcast via WebSocket
+		communication.BroadcastEvent(communication.EventAgentVote, Discussion{
+			ValidatorID: validatorID,
+			Message:     response,
+			Type:        opinionType,
+			Round:       round,
+			Timestamp:   time.Now(),
+		})
+
+		// Wait for other validators to comment in this round
+		time.Sleep(RoundDuration)
 	}
 
-	// Add to discussion
-	consensus.AddDiscussion(validatorID, response, opinionType)
+	// After discussions, make final vote
+	finalPrompt := fmt.Sprintf(`You are %s, making a final decision about the topic %s.
+
+		Review all discussions:
+		%s
+
+		Based on the complete discussion, should this topic be accepted?
+		Consider:
+		1. The overall sentiment from discussions
+		2. Your personality traits: %v
+		3. The topic of discussion according to your personality and their implications
+
+		Respond with SUPPORT or OPPOSE and a brief reason why.`,
+		name, txContents, consensus.GetDiscussionContext(DiscussionRounds+1), traits)
+
+	finalResponse := ai.GenerateLLMResponse(finalPrompt)
+
+	// Parse final vote
+	voteType := "oppose"
+	if strings.Contains(strings.ToUpper(finalResponse), "SUPPORT") {
+		voteType = "support"
+	}
+
+	// Record final vote
+	consensus.AddDiscussion(validatorID, finalResponse, voteType, DiscussionRounds+1)
+
+	// Broadcast via WebSocket
 	communication.BroadcastEvent(communication.EventAgentVote, Discussion{
 		ValidatorID: validatorID,
-		Message:     response,
-		Type:        opinionType,
+		Message:     finalResponse,
+		Type:        voteType,
+		Round:       DiscussionRounds + 1,
 		Timestamp:   time.Now(),
 	})
-
-	threadID := block.Hash()
-	sanitizedValidatorID := strings.ReplaceAll(validatorID, "\n", "")
-	sanitizedValidatorID = strings.ReplaceAll(sanitizedValidatorID, "\r", "")
-	log.Printf("Added reply from %s to thread %s: %s", sanitizedValidatorID, threadID, response)
-	if err := communication.AddReply(threadID, validatorID, response); err != nil {
-		log.Printf("Validator %s failed to add forum reply: %v", name, err)
-	}
-}
-
-func calculateTotalValue(txs []core.Transaction) float64 {
-	var total float64
-	for _, tx := range txs {
-		total += tx.Amount
-	}
-	return total
 }

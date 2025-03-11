@@ -299,6 +299,11 @@ func ProposeBlock(c *gin.Context) {
 	result := make(chan consensus.ConsensusResult)
 	cm.SubscribeResult(int64(block.Height), result)
 
+	// Calculate total expected time: all rounds + voting round + buffer + safety margin
+	totalTime := time.Duration(consensus.DiscussionRounds+1)*consensus.RoundDuration +
+		5*time.Second + // Buffer time
+		2*time.Second // Safety margin
+
 	select {
 	case consensusResult := <-result:
 		c.JSON(http.StatusOK, gin.H{
@@ -309,7 +314,7 @@ func ProposeBlock(c *gin.Context) {
 			"oppose":    consensusResult.Oppose,
 			"thread_id": threadID,
 		})
-	case <-time.After(35 * time.Second): // Slightly longer than DiscussionTimeout
+	case <-time.After(totalTime):
 		c.JSON(http.StatusGatewayTimeout, gin.H{
 			"error":     "Consensus timed out",
 			"block":     block,
