@@ -12,20 +12,19 @@ import (
 	"github.com/NethermindEth/chaoschain-launchpad/p2p"
 )
 
-// LLMResponse represents the expected structure of the response coming from the LLM.
 type LLMResponse struct {
 	Opinion string `json:"opinion"`
 	Stance  string `json:"stance"`
 	Reason  string `json:"reason"`
 }
 
-// Discussion represents a discussion message from a validator.
 type Discussion struct {
 	ValidatorID string    `json:"validatorId"`
 	Message     string    `json:"message"`
 	Timestamp   time.Time `json:"timestamp"`
 	Type        string    `json:"type"`  // "comment", "support", "oppose", "question"
 	Round       int       `json:"round"` // Which discussion round (1-5)
+	BlockId     string    `json:"blockId"`
 }
 
 const (
@@ -40,7 +39,7 @@ type BlockOpinion struct {
 }
 
 // AddDiscussion adds a new discussion point about a block
-func (bc *BlockConsensus) AddDiscussion(validatorID, message, discussionType string, round int) {
+func (bc *BlockConsensus) AddDiscussion(validatorID, message, discussionType string, round int, blockId string) {
 	bc.mu.Lock()
 	defer bc.mu.Unlock()
 
@@ -50,6 +49,7 @@ func (bc *BlockConsensus) AddDiscussion(validatorID, message, discussionType str
 		Timestamp:   time.Now(),
 		Type:        discussionType,
 		Round:       round,
+		BlockId:     blockId,
 	}
 
 	bc.Discussions = append(bc.Discussions, discussion)
@@ -69,7 +69,7 @@ func (bc *BlockConsensus) GetDiscussions() []Discussion {
 }
 
 // GetDiscussionContext formats all previous discussions for AI context
-func (bc *BlockConsensus) GetDiscussionContext(currentRound int) string {
+func (bc *BlockConsensus) GetDiscussionContext(blockId string, currentRound int) string {
 	bc.mu.RLock()
 	defer bc.mu.RUnlock()
 
@@ -79,7 +79,7 @@ func (bc *BlockConsensus) GetDiscussionContext(currentRound int) string {
 	for round := 1; round < currentRound; round++ {
 		context.WriteString(fmt.Sprintf("Round %d:\n", round))
 		for _, d := range bc.Discussions {
-			if d.Round == round {
+			if d.Round == round && d.BlockId == blockId {
 				context.WriteString(fmt.Sprintf("- %s: %s\n", d.ValidatorID, d.Message))
 			}
 		}
@@ -107,7 +107,7 @@ func StartBlockDiscussion(validatorID string, block *core.Block, traits []string
 	// Participate in discussion rounds
 	for round := 1; round <= DiscussionRounds; round++ {
 		// Get context from previous rounds
-		previousDiscussions := consensus.GetDiscussionContext(round)
+		previousDiscussions := consensus.GetDiscussionContext(block.Hash(), round)
 
 		// Generate discussion for this round
 		prompt := fmt.Sprintf(`You are %s, a blockchainvalidator with the following traits: %v.
@@ -151,14 +151,10 @@ func StartBlockDiscussion(validatorID string, block *core.Block, traits []string
 		var llmResult LLMResponse
 		if err := json.Unmarshal([]byte(response), &llmResult); err != nil {
 			fmt.Println("Error parsing LLM response:", err)
-		} else {
-			fmt.Println("Opinion:", llmResult.Opinion)
-			fmt.Println("Stance:", llmResult.Stance)
-			fmt.Println("Reason:", llmResult.Reason)
-		}
+		} 
 
 		// Add to discussion
-		consensus.AddDiscussion(validatorID, llmResult.Opinion + " " + llmResult.Reason, llmResult.Stance, round)
+		consensus.AddDiscussion(validatorID, llmResult.Opinion + " " + llmResult.Reason, llmResult.Stance, round, block.Hash())
 
 		// Broadcast via WebSocket
 		communication.BroadcastEvent(communication.EventAgentVote, Discussion{
@@ -188,7 +184,7 @@ func StartBlockDiscussion(validatorID string, block *core.Block, traits []string
 	"reason": "A brief explanation stating why, referencing specific evidence from the discussions."
 	}
 	Do not include any additional text or formatting.`,
-	name, txContents, consensus.GetDiscussionContext(DiscussionRounds+1))
+	name, txContents, consensus.GetDiscussionContext(block.Hash(), DiscussionRounds+1))
 
 	finalResponse := ai.GenerateLLMResponse(finalPrompt)
 	
@@ -209,7 +205,7 @@ func StartBlockDiscussion(validatorID string, block *core.Block, traits []string
 	}
 
 	// Record final vote
-	consensus.AddDiscussion(validatorID, finalResponse, voteType, DiscussionRounds+1)
+	consensus.AddDiscussion(validatorID, finalResponse, voteType, DiscussionRounds+1, block.Hash())
 
 	// Broadcast via WebSocket
 	communication.BroadcastEvent(communication.EventAgentVote, Discussion{
