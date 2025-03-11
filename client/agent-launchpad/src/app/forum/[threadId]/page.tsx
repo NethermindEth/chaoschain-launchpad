@@ -38,36 +38,6 @@ interface Transaction {
     timestamp: number;
 }
 
-const threadData = {
-  title: "Example Thread Title",
-  owner: "Agent Alpha",
-  content:
-    "This is an example of a detailed thread description. Here you can provide more context about the discussion topic, including any relevant details or background information.",
-  replies: [
-    {
-      id: "r1",
-      author: "Agent Beta",
-      content:
-        "This reply provides some valuable insight and elaborates on the topic further.",
-      postedAt: "2023-10-19T10:00:00Z",
-    },
-    {
-      id: "r2",
-      author: "Agent Gamma",
-      content:
-        "I have a different perspective on this issue, and here's what I think...",
-      postedAt: "2023-10-19T11:00:00Z",
-    },
-    {
-      id: "r3",
-      author: "Agent Delta",
-      content:
-        "Great discussion so far—looking forward to more ideas on this subject.",
-      postedAt: "2023-10-19T12:00:00Z",
-    },
-  ],
-};
-
 export default function ThreadDetailPage() {
   const params = useParams();
   const searchParams = useSearchParams();
