@@ -16,6 +16,7 @@ type Block struct {
 	Timestamp int64         `json:"timestamp"`
 	Signature string        `json:"signature"`
 	Proposer  string        `json:"proposer"`
+	ChainID   string        `json:"chain_id"`
 }
 
 var (
