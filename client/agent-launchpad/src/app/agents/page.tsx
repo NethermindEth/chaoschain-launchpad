@@ -30,14 +30,21 @@ export default function AgentsPage() {
         <meta name="viewport" content="width=device-width, initial-scale=1" />
       </Head>
 
+      <header className="p-8 pl-32 pb-0 text-lg">
+        <Link href="/" className="flex items-center gap-2">
+          <span className="text-[#fd7653] font-bold">CHAOSCHAIN</span>
+          <span className="text-white font-bold">LAUNCHPAD</span>
+        </Link>
+      </header>
+
       {/* Outer container */}
       <div
-        className={`min-h-screen bg-gray-900 text-gray-100 flex flex-col items-center justify-center p-8`}
+        className={`min-h-screen bg-[#101014] text-gray-100 flex flex-col items-center justify-center p-8 pl-0`}
       >
         <div className="w-full max-w-6xl">
           {/* Header */}
           <header className="mb-8">
-            <h1 className="text-4xl font-bold">ChaosChain Agent Launchpad</h1>
+            <h1 className="text-4xl font-bold">Agent Launchpad</h1>
             <p className="mt-2 text-sm text-gray-300">
               Configure and manage your agents for ChaosChain Launchpad. Add new
               agents using the panel on the left, and view your configuration
@@ -48,7 +55,7 @@ export default function AgentsPage() {
           {/* Main content: Left Panel and Agent List */}
           <div className="flex flex-col md:flex-row gap-8 items-stretch h-[70vh]">
             {/* Left Configuration Panel */}
-            <div className="flex-1 bg-gray-800 p-8 rounded-lg shadow-md flex flex-col">
+            <div className="flex-1 bg-gray-900 p-8 rounded-lg shadow-md flex flex-col">
               <div className="mb-4">
                 <h2 className="text-2xl font-bold">Agent Setup</h2>
                 <p className="text-gray-300">
@@ -80,27 +87,27 @@ export default function AgentsPage() {
               {/* Start Chain Button */}
 
               {agents.length >= requiredAgents && (
-               <Link
-               href="/forum"
-               className="mb-6 inline-flex items-center bg-gradient-to-r from-green-600 to-green-800 hover:opacity-90 text-gray-100 font-medium py-3 px-6 rounded-lg transition transform hover:scale-105 duration-200"
-             >
-               <FiCheck className="mr-2" /> Start Chain
-             </Link>
+                <Link
+                  href="/forum"
+                  className="mb-6 inline-flex items-center bg-gradient-to-r from-green-600 to-green-800 hover:opacity-90 text-gray-100 font-medium py-3 px-6 rounded-lg transition transform hover:scale-105 duration-200"
+                >
+                  <FiCheck className="mr-2" /> Start Chain
+                </Link>
               )}
 
               {/* Add Agent Button */}
               <button
                 onClick={openModal}
-                className="mt-auto flex items-center bg-gradient-to-r from-purple-700 to-purple-900 hover:opacity-90 text-gray-100 font-medium py-3 px-6 rounded-lg transition transform hover:scale-105 duration-200"
+                className="mt-auto flex items-center bg-gradient-to-r from-[#fd7653] to-[#feb082] hover:opacity-90 text-gray-100 font-medium py-3 px-6 rounded-lg transition transform hover:scale-105 duration-200"
               >
                 <FiPlus className="mr-2" /> Add Agent
               </button>
             </div>
 
             {/* Right Sidebar: Agents List */}
-            <aside className="w-full md:w-80 bg-gray-800 p-6 rounded-lg shadow-md flex flex-col">
+            <aside className="w-full md:w-80 bg-gray-900 p-6 rounded-lg shadow-md flex flex-col">
               <h2 className="text-2xl font-bold mb-4 text-center flex items-center justify-center">
-                <FiUser className="mr-2 text-purple-400" /> Agents List
+                <FiUser className="mr-2 text-[#fd7653]" /> Agents List
               </h2>
               {agents.length === 0 ? (
                 <p className="text-center text-gray-400 flex-1 flex items-center justify-center">
