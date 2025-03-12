@@ -97,11 +97,11 @@ func StartBlockDiscussion(validatorID string, block *core.Block, traits []string
 		return
 	}
 
-	// Format transactions for analysis
+	// // Format transactions for analysis
 	var txContents []string
 	for _, tx := range block.Txs {
-		txContents = append(txContents, fmt.Sprintf("- From %s: \"%s\" (Amount: %.2f)",
-			tx.From, tx.Content, tx.Amount))
+		txContents = append(txContents, fmt.Sprintf("Content: %s",
+			tx.Content))
 	}
 
 	// Participate in discussion rounds
