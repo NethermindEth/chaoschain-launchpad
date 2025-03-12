@@ -3,37 +3,59 @@ package core
 import (
 	"encoding/json"
 	"fmt"
+	"log"
+	"sync"
 	"time"
 
 	"github.com/NethermindEth/chaoschain-launchpad/p2p"
 )
 
+var chains = make(map[string]*Blockchain)
+var chainsLock sync.RWMutex
+
 // Blockchain represents a sequence of validated blocks
 type Blockchain struct {
 	Blocks  []Block
 	Mempool MempoolInterface
+	ChainID string
+	Nodes   map[string]*p2p.Node
+	NodesMu sync.RWMutex
 }
 
 // NewBlockchain initializes a blockchain with a genesis block
-func NewBlockchain(mp MempoolInterface) *Blockchain {
+func NewBlockchain(chainID string, mp MempoolInterface) *Blockchain {
 	genesisBlock := Block{
 		Height:    0,
 		PrevHash:  "0",
 		Txs:       []Transaction{},
 		Timestamp: time.Now().Unix(),
 		Signature: "genesis-signature",
+		ChainID:   chainID,
 	}
 
-	return &Blockchain{
+	bc := &Blockchain{
 		Blocks:  []Block{genesisBlock},
-		Mempool: mp, // Use interface instead of direct dependency
+		Mempool: mp,
+		ChainID: chainID,
+		Nodes:   make(map[string]*p2p.Node),
 	}
+
+	chainsLock.Lock()
+	chains[chainID] = bc
+	chainsLock.Unlock()
+
+	return bc
 }
 
 // AddBlock appends a new block to the chain
 func (bc *Blockchain) AddBlock(newBlock Block) error {
 	if len(bc.Blocks) == 0 {
 		return fmt.Errorf("cannot add block: blockchain is uninitialized")
+	}
+
+	// Validate block belongs to this chain
+	if newBlock.ChainID != bc.ChainID {
+		return fmt.Errorf("invalid block: wrong chain ID")
 	}
 
 	lastBlock := bc.Blocks[len(bc.Blocks)-1]
@@ -93,20 +115,30 @@ func (bc *Blockchain) CreateBlock() (*Block, error) {
 		Txs:       pendingTxs,
 		Timestamp: time.Now().Unix(),
 		Signature: "temp", // TODO: Add proper block signing
+		ChainID:   bc.ChainID,
 	}
 
 	return newBlock, nil
 }
 
 // ProcessTransaction validates and adds a transaction to the mempool
-func (bc *Blockchain) ProcessTransaction(tx Transaction) error {
+func (bc *Blockchain) ProcessTransaction(tx Transaction, mp MempoolInterface) error {
+	log.Printf("Processing transaction for chain %s (tx chainID: %s)", bc.ChainID, tx.ChainID)
+
 	// Validate transaction
 	if !tx.VerifyTransaction(tx.From) {
 		return fmt.Errorf("invalid transaction signature")
 	}
 
-	// Add to mempool
-	if !bc.Mempool.AddTransaction(tx) {
+	// Verify chainID matches
+	if tx.ChainID != bc.ChainID {
+		return fmt.Errorf("transaction chain ID (%s) does not match blockchain (%s)", tx.ChainID, bc.ChainID)
+	}
+
+	// Store the mempool reference
+	bc.Mempool = mp
+
+	if !mp.AddTransaction(tx) {
 		return fmt.Errorf("failed to add transaction to mempool")
 	}
 
@@ -123,8 +155,11 @@ func (bc *Blockchain) ProcessTransaction(tx Transaction) error {
 var defaultChain *Blockchain
 
 // Initialize blockchain
-func InitBlockchain(mp MempoolInterface) {
-	defaultChain = NewBlockchain(mp)
+func InitBlockchain(chainID string, mp MempoolInterface) {
+	if chainID == "" {
+		panic("ChainID cannot be empty")
+	}
+	chains[chainID] = NewBlockchain(chainID, mp)
 }
 
 // GetBlockchain returns the default blockchain instance
@@ -133,4 +168,33 @@ func GetBlockchain() *Blockchain {
 		panic("Blockchain not initialized. Call InitBlockchain first")
 	}
 	return defaultChain
+}
+
+// Add GetChain helper
+func GetChain(chainID string) *Blockchain {
+	chainsLock.RLock()
+	defer chainsLock.RUnlock()
+	log.Println("All the chains are: ", chains)
+	return chains[chainID]
+}
+
+// GetAllChains returns a list of all chain IDs
+func GetAllChains() []string {
+	chainsLock.RLock()
+	defer chainsLock.RUnlock()
+
+	chainIDs := make([]string, 0, len(chains))
+	for id := range chains {
+		chainIDs = append(chainIDs, id)
+	}
+	return chainIDs
+}
+
+// RegisterNode adds a node to the chain's network
+func (bc *Blockchain) RegisterNode(addr string, node *p2p.Node) {
+	bc.NodesMu.Lock()
+	defer bc.NodesMu.Unlock()
+	log.Printf("Registering node %s to chain %s. Current nodes: %d", addr, bc.ChainID, len(bc.Nodes))
+	bc.Nodes[addr] = node
+	log.Printf("After registration, chain %s has %d nodes", bc.ChainID, len(bc.Nodes))
 }

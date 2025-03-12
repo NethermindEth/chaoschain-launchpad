@@ -19,6 +19,7 @@ type Transaction struct {
 	Timestamp int64   `json:"timestamp"`
 	Signature string  `json:"signature"`
 	PublicKey string  `json:"publicKey"`
+	ChainID   string  `json:"chainID"`
 }
 
 // GenerateKeyPair creates a new key pair for signing transactions

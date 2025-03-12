@@ -7,20 +7,19 @@ import (
 
 	"github.com/NethermindEth/chaoschain-launchpad/ai"
 	"github.com/NethermindEth/chaoschain-launchpad/core"
-	"github.com/NethermindEth/chaoschain-launchpad/mempool"
 	"github.com/NethermindEth/chaoschain-launchpad/p2p"
 )
 
 // Producer handles block production in the system.
 type Producer struct {
-	Mempool     *mempool.Mempool
+	Mempool     core.MempoolInterface
 	Personality ai.Personality
 	LastBlock   *core.Block // Keeps track of last block for chaining
 	p2pNode     *p2p.Node
 }
 
 // NewProducer initializes a block Producer.
-func NewProducer(mp *mempool.Mempool, personality ai.Personality, p2pNode *p2p.Node) *Producer {
+func NewProducer(mp core.MempoolInterface, personality ai.Personality, p2pNode *p2p.Node) *Producer {
 	return &Producer{
 		Mempool:     mp,
 		Personality: personality,

@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"fmt"
+	"log"
 	"net/http"
 	"strconv"
 	"sync"
@@ -50,6 +51,14 @@ type RelationshipUpdate struct {
 
 // RegisterAgent - Registers a new AI agent (Producer or Validator)
 func RegisterAgent(c *gin.Context) {
+	chainID := c.GetString("chainID")
+	log.Println("The chainID is: ", chainID)
+	chain := core.GetChain(chainID)
+	if chain == nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Chain not found"})
+		return
+	}
+
 	var agent core.Agent
 	if err := c.ShouldBindJSON(&agent); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid agent data"})
@@ -60,18 +69,35 @@ func RegisterAgent(c *gin.Context) {
 	agent.ID = uuid.New().String()
 
 	// Get bootstrap node's P2P instance
-	bootstrapNode := p2p.GetP2PNode()
+	var bootstrapNode *p2p.Node
+	chain.NodesMu.RLock()
+	for _, node := range chain.Nodes {
+		bootstrapNode = node
+		break // Get first node
+	}
+	chain.NodesMu.RUnlock()
+
+	if bootstrapNode == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "No bootstrap node found for chain"})
+		return
+	}
+
 	bootstrapPort := bootstrapNode.GetPort()
 	if bootstrapPort == 0 {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Bootstrap node not ready"})
 		return
 	}
 
+	log.Printf("Found bootstrap node at port: %d", bootstrapPort)
+
 	// Create a new node for this agent
 	newPort := findAvailablePort()
 	agentNode := node.NewNode(node.NodeConfig{
-		P2PPort:       newPort,
-		APIPort:       findAvailableAPIPort(),
+		ChainConfig: p2p.ChainConfig{
+			ChainID: chainID,
+			P2PPort: newPort,
+			APIPort: findAvailableAPIPort(),
+		},
 		BootstrapNode: fmt.Sprintf("localhost:%d", bootstrapPort),
 	})
 
@@ -79,6 +105,16 @@ func RegisterAgent(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to start agent node"})
 		return
 	}
+
+	// Register the new node with the correct chain
+	addr := fmt.Sprintf("localhost:%d", newPort)
+	log.Printf("Registering new node at %s with chain %s", addr, chainID)
+	chain.RegisterNode(addr, agentNode.GetP2PNode())
+
+	// Info: Verify registration
+	chain.NodesMu.RLock()
+	log.Printf("Nodes in chain %s after registration: %d", chainID, len(chain.Nodes))
+	chain.NodesMu.RUnlock()
 
 	if agent.Role == "producer" {
 		personality := ai.Personality{
@@ -98,7 +134,7 @@ func RegisterAgent(c *gin.Context) {
 		producerInstance := producer.NewProducer(mp, personality, agentNode.GetP2PNode())
 
 		// Register on the agent's node
-		registry.RegisterProducer(agent.ID, producerInstance)
+		registry.RegisterProducer(chainID, agent.ID, producerInstance)
 
 	} else if agent.Role == "validator" {
 		validatorInstance := validator.NewValidator(
@@ -111,7 +147,7 @@ func RegisterAgent(c *gin.Context) {
 		)
 
 		// Register on the agent's node
-		registry.RegisterValidator(agent.ID, validatorInstance)
+		registry.RegisterValidator(chainID, agent.ID, validatorInstance)
 	} else {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid agent role"})
 		return
@@ -129,29 +165,47 @@ func RegisterAgent(c *gin.Context) {
 
 // GetBlock - Fetch a block by height
 func GetBlock(c *gin.Context) {
+	chainID := c.GetString("chainID")
 	height, err := strconv.Atoi(c.Param("height"))
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid block height"})
 		return
 	}
 
-	block, exists := core.GetBlockByHeight(height)
-	if !exists {
+	chain := core.GetChain(chainID)
+	if chain == nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Chain not found"})
+		return
+	}
+
+	if height < 0 || height >= len(chain.Blocks) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Block not found"})
 		return
 	}
+	block := chain.Blocks[height]
 
 	c.JSON(http.StatusOK, gin.H{"block": block})
 }
 
 // GetNetworkStatus - Returns the current status of ChaosChain
 func GetNetworkStatus(c *gin.Context) {
-	bc := core.GetBlockchain()
+	chainID := c.GetString("chainID")
+	bc := core.GetChain(chainID)
+	if bc == nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Chain not found"})
+		return
+	}
+
+	// Get node count for this chain
+	bc.NodesMu.RLock()
+	nodeCount := len(bc.Nodes)
+	bc.NodesMu.RUnlock()
+
 	status := map[string]interface{}{
 		"height":     len(bc.Blocks) - 1,
 		"latestHash": bc.Blocks[len(bc.Blocks)-1].Hash(),
 		"totalTxs":   len(bc.Blocks[len(bc.Blocks)-1].Txs),
-		"peerCount":  p2p.GetNetworkPeerCount(),
+		"nodeCount":  nodeCount,
 	}
 
 	c.JSON(http.StatusOK, gin.H{"status": status})
@@ -159,11 +213,18 @@ func GetNetworkStatus(c *gin.Context) {
 
 // SubmitTransaction - Allows an agent to submit a transaction
 func SubmitTransaction(c *gin.Context) {
+	chainID := c.GetString("chainID")
+	log.Printf("Submitting transaction for chain: %s", chainID)
+
 	var tx core.Transaction
 	if err := c.ShouldBindJSON(&tx); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid transaction format"})
 		return
 	}
+
+	// Set the chainID on the transaction
+	tx.ChainID = chainID
+	log.Printf("Transaction details - ChainID: %s, From: %s, To: %s", tx.ChainID, tx.From, tx.To)
 
 	// In production, you would get the private key from secure storage
 	privateKey, err := core.GenerateKeyPair()
@@ -179,8 +240,21 @@ func SubmitTransaction(c *gin.Context) {
 	}
 
 	// Process the signed transaction
-	bc := core.GetBlockchain()
-	if err := bc.ProcessTransaction(tx); err != nil {
+	bc := core.GetChain(chainID)
+	if bc == nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Chain not found"})
+		return
+	}
+
+	// Get the chain's mempool
+	mp := mempool.GetMempool(chainID)
+	if mp == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Mempool not found for chain"})
+		return
+	}
+
+	if err := bc.ProcessTransaction(tx, mp); err != nil {
+		log.Printf("Failed to process transaction: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Transaction failed: " + err.Error()})
 		return
 	}
@@ -192,15 +266,17 @@ func SubmitTransaction(c *gin.Context) {
 
 // GetValidators - Returns the list of registered validators
 func GetValidators(c *gin.Context) {
-	validatorsList := validator.GetAllValidators()
+	chainID := c.GetString("chainID")
+	validatorsList := validator.GetAllValidators(chainID)
 	c.JSON(http.StatusOK, gin.H{"validators": validatorsList})
 }
 
 // GetSocialStatus - Retrieves an agent's social reputation
 func GetSocialStatus(c *gin.Context) {
 	agentID := c.Param("agentID")
+	chainID := c.GetString("chainID")
 
-	validator := validator.GetValidatorByID(agentID)
+	validator := validator.GetValidatorByID(chainID, agentID)
 	if validator == nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Validator not found"})
 		return
@@ -217,6 +293,7 @@ func GetSocialStatus(c *gin.Context) {
 // AddInfluence adds a new influence to a validator
 func AddInfluence(c *gin.Context) {
 	agentID := c.Param("agentID")
+	chainID := c.GetString("chainID")
 	var influence struct {
 		Name string `json:"name"`
 	}
@@ -225,7 +302,7 @@ func AddInfluence(c *gin.Context) {
 		return
 	}
 
-	v := validator.GetValidatorByID(agentID)
+	v := validator.GetValidatorByID(chainID, agentID)
 	if v == nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Validator not found"})
 		return
@@ -238,6 +315,7 @@ func AddInfluence(c *gin.Context) {
 // UpdateRelationship updates the relationship score between validators
 func UpdateRelationship(c *gin.Context) {
 	agentID := c.Param("agentID")
+	chainID := c.GetString("chainID")
 	var rel RelationshipUpdate
 	if err := c.ShouldBindJSON(&rel); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid relationship data"})
@@ -245,7 +323,7 @@ func UpdateRelationship(c *gin.Context) {
 	}
 	rel.FromID = agentID // Set the from ID
 
-	v := validator.GetValidatorByID(agentID)
+	v := validator.GetValidatorByID(chainID, agentID)
 	if v == nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Validator not found"})
 		return
@@ -264,10 +342,15 @@ func UpdateRelationship(c *gin.Context) {
 
 // ProposeBlock creates a new block and starts consensus
 func ProposeBlock(c *gin.Context) {
-	// Check if client wants to wait for consensus
+	chainID := c.GetString("chainID")
 	waitForConsensus := c.DefaultQuery("wait", "false") == "true"
 
-	bc := core.GetBlockchain()
+	bc := core.GetChain(chainID)
+	if bc == nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Chain not found"})
+		return
+	}
+
 	block, err := bc.CreateBlock()
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -281,7 +364,7 @@ func ProposeBlock(c *gin.Context) {
 	title := fmt.Sprintf("Block Proposal %s", threadID)
 	communication.CreateThread(threadID, title, producerName)
 
-	cm := consensus.GetConsensusManager()
+	cm := consensus.GetConsensusManager(chainID)
 	if err := cm.ProposeBlock(block); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Failed to start consensus: " + err.Error()})
 		return
@@ -327,4 +410,69 @@ func ProposeBlock(c *gin.Context) {
 func GetAllThreads(c *gin.Context) {
 	threads := communication.GetAllThreads() // We'll implement this function in forum
 	c.JSON(http.StatusOK, threads)
+}
+
+type CreateChainRequest struct {
+	ChainID string `json:"chain_id" binding:"required"`
+}
+
+// CreateChain creates a new blockchain instance
+func CreateChain(c *gin.Context) {
+	var req CreateChainRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request format"})
+		return
+	}
+
+	// Check if chain already exists
+	if core.GetChain(req.ChainID) != nil {
+		c.JSON(http.StatusConflict, gin.H{"error": "Chain already exists"})
+		return
+	}
+
+	// Find available ports for the bootstrap node
+	p2pPort := findAvailablePort()
+	apiPort := findAvailableAPIPort()
+
+	// Create bootstrap node for the new chain
+	bootstrapNode := node.NewNode(node.NodeConfig{
+		ChainConfig: p2p.ChainConfig{
+			ChainID: req.ChainID,
+			P2PPort: p2pPort,
+			APIPort: apiPort,
+		},
+		// No bootstrap node address as this will be the bootstrap node
+	})
+
+	if err := bootstrapNode.Start(); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to start bootstrap node"})
+		return
+	}
+
+	// Initialize new chain with its own mempool
+	mp := mempool.NewMempool(req.ChainID)
+	core.InitBlockchain(req.ChainID, mp)
+
+	// Register the bootstrap node with the chain
+	chain := core.GetChain(req.ChainID)
+	addr := fmt.Sprintf("localhost:%d", p2pPort)
+	chain.RegisterNode(addr, bootstrapNode.GetP2PNode())
+
+	log.Printf("Created new chain %s with bootstrap node on P2P port %d and API port %d",
+		req.ChainID, p2pPort, apiPort)
+
+	c.JSON(http.StatusCreated, gin.H{
+		"message":  "Chain created successfully",
+		"chain_id": req.ChainID,
+		"bootstrap_node": map[string]int{
+			"p2p_port": p2pPort,
+			"api_port": apiPort,
+		},
+	})
+}
+
+// ListChains returns all available chains
+func ListChains(c *gin.Context) {
+	chains := core.GetAllChains()
+	c.JSON(http.StatusOK, gin.H{"chains": chains})
 }

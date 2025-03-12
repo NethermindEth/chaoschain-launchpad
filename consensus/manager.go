@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"strings"
 	"sync"
 	"time"
 
@@ -39,26 +40,41 @@ type ConsensusResult struct {
 }
 
 type ConsensusManager struct {
+	chainID         string
 	activeConsensus *BlockConsensus
 	subscribers     map[int64][]chan ConsensusResult // blockHeight -> channels
 	mu              sync.RWMutex
 }
 
 var (
-	defaultManager *ConsensusManager
-	managerOnce    sync.Once
+	managers     = make(map[string]*ConsensusManager)
+	managersLock sync.RWMutex
 )
 
 // GetConsensusManager returns the singleton consensus manager
-func GetConsensusManager() *ConsensusManager {
-	managerOnce.Do(func() {
-		defaultManager = &ConsensusManager{}
-	})
-	return defaultManager
+func GetConsensusManager(chainID string) *ConsensusManager {
+	managersLock.Lock()
+	defer managersLock.Unlock()
+
+	if manager, exists := managers[chainID]; exists {
+		return manager
+	}
+
+	manager := &ConsensusManager{
+		chainID:     chainID,
+		subscribers: make(map[int64][]chan ConsensusResult),
+	}
+	managers[chainID] = manager
+	return manager
 }
 
 // ProposeBlock starts the consensus process for a new block
 func (cm *ConsensusManager) ProposeBlock(block *core.Block) error {
+	// Validate block belongs to this chain
+	if block.ChainID != cm.chainID {
+		return fmt.Errorf("invalid block: wrong chain ID")
+	}
+
 	cm.mu.Lock()
 	defer cm.mu.Unlock()
 
@@ -114,13 +130,25 @@ func (cm *ConsensusManager) runConsensusProcess() {
 	cm.activeConsensus.mu.Lock()
 	cm.activeConsensus.State = Finalizing
 
-	// Count final votes (only from the last round)
-	var support, oppose int
-	for _, discussion := range cm.activeConsensus.Discussions {
-		if discussion.Round == DiscussionRounds+1 { // Final voting round
-			if discussion.Type == "support" {
+	// Get final consensus state
+	consensus := cm.GetActiveConsensus()
+	if consensus == nil {
+		return
+	}
+
+	bc := core.GetChain(consensus.Block.ChainID)
+	if bc == nil {
+		return
+	}
+
+	// Count votes
+	support := 0
+	oppose := 0
+	for _, d := range consensus.Discussions {
+		if d.Round == DiscussionRounds+1 { // Only count final votes
+			if strings.ToLower(d.Type) == "support" {
 				support++
-			} else if discussion.Type == "oppose" {
+			} else if strings.ToLower(d.Type) == "oppose" {
 				oppose++
 			}
 		}
@@ -132,27 +160,27 @@ func (cm *ConsensusManager) runConsensusProcess() {
 		cm.activeConsensus.State = Rejected
 		// Return transactions to mempool
 		for _, tx := range cm.activeConsensus.Block.Txs {
-			core.GetBlockchain().Mempool.AddTransaction(tx)
+			bc.Mempool.AddTransaction(tx)
 		}
 	} else if float64(support)/float64(totalVotes) > 0.5 {
 		cm.activeConsensus.State = Accepted
 		// Add block to blockchain
-		if err := core.GetBlockchain().AddBlock(*cm.activeConsensus.Block); err != nil {
+		if err := bc.AddBlock(*cm.activeConsensus.Block); err != nil {
 			log.Printf("Failed to add accepted block: %v", err)
 			cm.activeConsensus.State = Rejected
 			// Return transactions to mempool on failure
 			for _, tx := range cm.activeConsensus.Block.Txs {
-				core.GetBlockchain().Mempool.AddTransaction(tx)
+				bc.Mempool.AddTransaction(tx)
 			}
 		} else {
 			// Clear processed transactions from mempool
-			core.GetBlockchain().Mempool.CleanupExpiredTransactions()
+			bc.Mempool.CleanupExpiredTransactions()
 		}
 	} else {
 		cm.activeConsensus.State = Rejected
 		// Return transactions to mempool
 		for _, tx := range cm.activeConsensus.Block.Txs {
-			core.GetBlockchain().Mempool.AddTransaction(tx)
+			bc.Mempool.AddTransaction(tx)
 		}
 	}
 

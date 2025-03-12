@@ -7,39 +7,62 @@ import (
 	"github.com/NethermindEth/chaoschain-launchpad/core"
 )
 
+var (
+	// Map of chainID -> Mempool
+	mempools  = make(map[string]*Mempool)
+	mempoolMu sync.RWMutex
+)
+
 // Mempool stores pending transactions before they are added to a block
 type Mempool struct {
 	mu            sync.Mutex
 	transactions  map[string]core.Transaction
-	expirationSec int64 // Transactions expire after X seconds
+	expirationSec int64  // Transactions expire after X seconds
+	chainID       string // Add chainID to mempool
 }
 
-var defaultMempool *Mempool
-
 // Initialize mempool separately
-func InitMempool(expirationSec int64) {
-	defaultMempool = &Mempool{
+func InitMempool(chainID string, timeout int64) *Mempool {
+	mempoolMu.Lock()
+	defer mempoolMu.Unlock()
+
+	mp := &Mempool{
 		transactions:  make(map[string]core.Transaction),
-		expirationSec: expirationSec,
+		expirationSec: timeout,
+		chainID:       chainID,
 	}
+	mempools[chainID] = mp
+	return mp
 }
 
 // GetMempool returns the default mempool instance
-func GetMempool() core.MempoolInterface {
-	return defaultMempool
+func GetMempool(chainID string) *Mempool {
+	mempoolMu.RLock()
+	defer mempoolMu.RUnlock()
+	return mempools[chainID]
 }
 
 // AddTransaction adds a new transaction to the mempool if valid
-func (mp *Mempool) AddTransaction(tx core.Transaction) bool {
+func (mp *Mempool) AddTransaction(tx interface{}) bool {
+	transaction, ok := tx.(core.Transaction)
+	if !ok {
+		return false
+	}
+
+	// Verify transaction belongs to this chain
+	if transaction.ChainID != mp.chainID {
+		return false
+	}
+
 	mp.mu.Lock()
 	defer mp.mu.Unlock()
 
 	// Ensure transaction is valid before adding
-	if !tx.VerifyTransaction(tx.From) {
+	if !transaction.VerifyTransaction(transaction.From) {
 		return false
 	}
 
-	mp.transactions[tx.Signature] = tx
+	mp.transactions[transaction.Signature] = transaction
 	return true
 }
 
@@ -80,4 +103,12 @@ func (mp *Mempool) Size() int {
 	mp.mu.Lock()
 	defer mp.mu.Unlock()
 	return len(mp.transactions)
+}
+
+// NewMempool creates a new mempool instance
+func NewMempool(chainID string) *Mempool {
+	return &Mempool{
+		transactions: make(map[string]core.Transaction),
+		chainID:      chainID,
+	}
 }
