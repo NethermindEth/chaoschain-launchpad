@@ -138,7 +138,6 @@ func (n *Node) ConnectToPeer(address string) {
 
 	// Verify chain ID
 	if response.ChainID != n.ChainID {
-		log.Printf("Chain ID mismatch: expected %s, got %s", n.ChainID, response.ChainID)
 		conn.Close()
 		return
 	}

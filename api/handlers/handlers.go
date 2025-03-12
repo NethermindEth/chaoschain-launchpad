@@ -52,7 +52,6 @@ type RelationshipUpdate struct {
 // RegisterAgent - Registers a new AI agent (Producer or Validator)
 func RegisterAgent(c *gin.Context) {
 	chainID := c.GetString("chainID")
-	log.Println("The chainID is: ", chainID)
 	chain := core.GetChain(chainID)
 	if chain == nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Chain not found"})
@@ -108,13 +107,8 @@ func RegisterAgent(c *gin.Context) {
 
 	// Register the new node with the correct chain
 	addr := fmt.Sprintf("localhost:%d", newPort)
-	log.Printf("Registering new node at %s with chain %s", addr, chainID)
-	chain.RegisterNode(addr, agentNode.GetP2PNode())
 
-	// Info: Verify registration
-	chain.NodesMu.RLock()
-	log.Printf("Nodes in chain %s after registration: %d", chainID, len(chain.Nodes))
-	chain.NodesMu.RUnlock()
+	chain.RegisterNode(addr, agentNode.GetP2PNode())
 
 	if agent.Role == "producer" {
 		personality := ai.Personality{
@@ -214,7 +208,6 @@ func GetNetworkStatus(c *gin.Context) {
 // SubmitTransaction - Allows an agent to submit a transaction
 func SubmitTransaction(c *gin.Context) {
 	chainID := c.GetString("chainID")
-	log.Printf("Submitting transaction for chain: %s", chainID)
 
 	var tx core.Transaction
 	if err := c.ShouldBindJSON(&tx); err != nil {
@@ -224,7 +217,6 @@ func SubmitTransaction(c *gin.Context) {
 
 	// Set the chainID on the transaction
 	tx.ChainID = chainID
-	log.Printf("Transaction details - ChainID: %s, From: %s, To: %s", tx.ChainID, tx.From, tx.To)
 
 	// In production, you would get the private key from secure storage
 	privateKey, err := core.GenerateKeyPair()
@@ -254,7 +246,6 @@ func SubmitTransaction(c *gin.Context) {
 	}
 
 	if err := bc.ProcessTransaction(tx, mp); err != nil {
-		log.Printf("Failed to process transaction: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Transaction failed: " + err.Error()})
 		return
 	}
@@ -457,9 +448,6 @@ func CreateChain(c *gin.Context) {
 	chain := core.GetChain(req.ChainID)
 	addr := fmt.Sprintf("localhost:%d", p2pPort)
 	chain.RegisterNode(addr, bootstrapNode.GetP2PNode())
-
-	log.Printf("Created new chain %s with bootstrap node on P2P port %d and API port %d",
-		req.ChainID, p2pPort, apiPort)
 
 	c.JSON(http.StatusCreated, gin.H{
 		"message":  "Chain created successfully",

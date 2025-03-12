@@ -123,7 +123,6 @@ func (bc *Blockchain) CreateBlock() (*Block, error) {
 
 // ProcessTransaction validates and adds a transaction to the mempool
 func (bc *Blockchain) ProcessTransaction(tx Transaction, mp MempoolInterface) error {
-	log.Printf("Processing transaction for chain %s (tx chainID: %s)", bc.ChainID, tx.ChainID)
 
 	// Validate transaction
 	if !tx.VerifyTransaction(tx.From) {
@@ -194,7 +193,5 @@ func GetAllChains() []string {
 func (bc *Blockchain) RegisterNode(addr string, node *p2p.Node) {
 	bc.NodesMu.Lock()
 	defer bc.NodesMu.Unlock()
-	log.Printf("Registering node %s to chain %s. Current nodes: %d", addr, bc.ChainID, len(bc.Nodes))
 	bc.Nodes[addr] = node
-	log.Printf("After registration, chain %s has %d nodes", bc.ChainID, len(bc.Nodes))
 }
