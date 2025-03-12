@@ -41,7 +41,7 @@ export default function Home() {
                 </button>
               </Link>
               <Link href="/agents">
-                <button className="w-full bg-gradient-to-r from-[#fa6875] to-[#feb082] text-white font-medium font-semibold px-8 py-3 rounded-2xl hover:shadow-lg shadow-md transition-all duration-300 transform hover:-translate-y-0.5">
+                <button className="w-full bg-gradient-to-r from-[#fd7653] to-[#feb082] text-white font-medium font-semibold px-8 py-3 rounded-2xl hover:shadow-lg shadow-md transition-all duration-300 transform hover:-translate-y-0.5">
                   Launch Chaos
                 </button>
               </Link>
