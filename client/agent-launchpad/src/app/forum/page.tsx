@@ -86,7 +86,7 @@ export default function ForumPage({ chainId }: ForumPageProps) {
           </h1>
           <button
             onClick={() => setIsModalOpen(true)}
-            className="flex items-center bg-purple-600 hover:bg-purple-700 text-white font-bold py-2 px-4 rounded"
+            className="flex items-center bg-[#fd7653] hover:opacity-90 text-white font-bold py-2 px-4 rounded"
           >
             <FiPlus className="mr-2" /> Propose Transaction
           </button>

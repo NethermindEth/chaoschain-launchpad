@@ -93,7 +93,7 @@ export default function AgentsPage({ chainId }: AgentsPageProps) {
                 </div>
                 <div className="w-full bg-gray-700 rounded-full h-3">
                   <div
-                    className="bg-gradient-to-r from-purple-600 to-purple-900 h-3 rounded-full transition-all duration-300"
+                    className="bg-gradient-to-r from-[#fd7653] to-[#feb082] h-3 rounded-full transition-all duration-300"
                     style={{ width: `${progressPercentage}%` }}
                   ></div>
                 </div>
@@ -113,7 +113,7 @@ export default function AgentsPage({ chainId }: AgentsPageProps) {
               {/* Add Agent Button */}
               <button
                 onClick={openModal}
-                className="mt-auto flex items-center bg-gradient-to-r from-[#fd7653] to-[#feb082] hover:opacity-90 text-gray-100 font-medium py-3 px-6 rounded-lg transition transform hover:scale-105 duration-200"
+                className="mt-auto flex items-center bg-[#fd7653] hover:opacity-90 text-gray-100 font-medium py-3 px-6 rounded-lg transition transform hover:scale-105 duration-200"
               >
                 <FiPlus className="mr-2" /> Add Agent
               </button>
@@ -129,11 +129,11 @@ export default function AgentsPage({ chainId }: AgentsPageProps) {
                   No agents added yet.
                 </p>
               ) : (
-                <div className="space-y-4 flex-1 overflow-y-auto pr-2">
+                <div className="space-y-4 flex-1 overflow-y-auto">
                   {agents.map((agent) => (
                     <div
                       key={agent.id}
-                      className="p-4 bg-gray-900 rounded-lg hover:bg-gray-700 transition-colors duration-200"
+                      className="p-4 bg-gray-800 rounded-lg hover:bg-gray-700 transition-colors duration-200"
                     >
                       <h3 className="text-xl font-semibold mb-2">
                         {agent.name}
