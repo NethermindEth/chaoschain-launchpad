@@ -30,13 +30,9 @@ interface Validator {
     Name: string;
 }
 
-interface ThreadDetailPageProps {
-  chainId: string;
-}
-
-export default function ThreadDetailPage({ chainId }: ThreadDetailPageProps) {
+export default function ThreadDetailPage() {
   const params = useParams();
-  const { threadId } = params;
+  const chainId = typeof params.chainId === 'string' ? params.chainId : "";
   const searchParams = useSearchParams();
   const [replies, setReplies] = useState<AgentVote[]>([]);
   const [votingResult, setVotingResult] = useState<VotingResult | null>(null);
@@ -128,7 +124,7 @@ export default function ThreadDetailPage({ chainId }: ThreadDetailPageProps) {
       subscribedRef.current.votingResult = false;
       subscribedRef.current.blockVerdict = false;
     };
-  }, []);
+  }, [chainId]);
 
   useEffect(() => {
     const fetchValidatorData = async () => {

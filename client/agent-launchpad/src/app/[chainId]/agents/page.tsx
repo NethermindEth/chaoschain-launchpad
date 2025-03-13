@@ -8,5 +8,5 @@ export default function ChainAgentsPage() {
   const chainId = params.chainId as string;
 
   // Pass chainId to the AgentsPage component
-  return <AgentsPage chainId={chainId} />;
+  return <AgentsPage />;
 } 

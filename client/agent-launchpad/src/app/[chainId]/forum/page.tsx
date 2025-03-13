@@ -7,5 +7,5 @@ export default function ChainForumPage() {
   const params = useParams();
   const chainId = params.chainId as string;
 
-  return <ForumPage chainId={chainId} />;
+  return <ForumPage />;
 } 

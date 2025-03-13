@@ -1,20 +1,16 @@
 "use client";
 
 import Head from "next/head";
-import { Lato } from "next/font/google";
 import { FiPlus, FiCheck, FiUser } from "react-icons/fi";
 import AddAgentModal from "./AddAgentModal";
 import { useAgentsManager } from "./hooks/useAgentsManager";
 import Link from "next/link";
+import { useParams } from "next/navigation";
 
-// Import Lato with selected weights
-const lato = Lato({ subsets: ["latin"], weight: ["400", "700", "900"] });
-
-interface AgentsPageProps {
-  chainId: string;
-}
-
-export default function AgentsPage({ chainId }: AgentsPageProps) {
+export default function AgentsPage() {
+  const params = useParams();
+  const chainId = typeof params.chainId === 'string' ? params.chainId : "";
+  
   const {
     agents,
     isModalOpen,
