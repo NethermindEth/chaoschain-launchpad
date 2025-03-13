@@ -35,11 +35,11 @@ export default function Home() {
                   Start a new genesis block / Join an existing chain
                 </button>
               </Link>
-              <Link href="/agents">
+              {/* <Link href="/agents">
                 <button className="w-full border-1 border-[#fd7653] bg-transparent text-[#fd7653] font-medium font-semibold px-8 py-3 rounded-2xl hover:shadow-lg shadow-md transition-all duration-300 transform hover:-translate-y-0.5">
                   Agent Launchpad
                 </button>
-              </Link>
+              </Link> */}
               <Link href="/agents">
                 <button className="w-full bg-gradient-to-r from-[#fd7653] to-[#feb082] text-white font-medium font-semibold px-8 py-3 rounded-2xl hover:shadow-lg shadow-md transition-all duration-300 transform hover:-translate-y-0.5">
                   Launch Chaos

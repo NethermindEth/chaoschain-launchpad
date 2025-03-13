@@ -1,18 +1,17 @@
 import { useState, useEffect } from 'react';
 import { FiX } from 'react-icons/fi';
-
-interface Agent {
-    ID: string;
-    Name: string;
-}
+import { fetchValidators } from "@/services/api";
+import type { Validator } from "@/services/api";
 
 interface TransactionModalProps {
     onClose: () => void;
     onSubmit: (transaction: any) => void;
+    chainId: string;
 }
 
-export default function TransactionModal({ onClose, onSubmit }: TransactionModalProps) {
-    const [agents, setAgents] = useState<Agent[]>([]);
+export default function TransactionModal({ onClose, onSubmit, chainId }: TransactionModalProps) {
+    const [agents, setAgents] = useState<Validator[]>([]);
+    const [isSubmitting, setIsSubmitting] = useState(false);
     const [formData, setFormData] = useState({
         from: '',
         to: '',
@@ -23,22 +22,29 @@ export default function TransactionModal({ onClose, onSubmit }: TransactionModal
     });
 
     useEffect(() => {
-        const fetchAgents = async () => {
+        const loadValidators = async () => {
             try {
-                const response = await fetch('http://127.0.0.1:3000/api/validators');
-                const data = await response.json();
-                setAgents(data.validators);
+                const validators = await fetchValidators(chainId);
+                setAgents(validators);
             } catch (error) {
-                console.error('Failed to fetch agents:', error);
+                console.error('Failed to fetch validators:', error);
             }
         };
-        fetchAgents();
-    }, []);
+        loadValidators();
+    }, [chainId]);
 
-    const handleSubmit = (e: React.FormEvent) => {
+    const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
-        onSubmit(formData);
-        onClose();
+        setIsSubmitting(true);
+        try {
+            await onSubmit(formData);
+            onClose();
+        } catch (error) {
+            console.error('Transaction submission failed:', error);
+            // Optionally show error message to user
+        } finally {
+            setIsSubmitting(false);
+        }
     };
 
     return (
@@ -128,8 +134,16 @@ export default function TransactionModal({ onClose, onSubmit }: TransactionModal
                     <button
                         type="submit"
                         className="w-full bg-purple-600 hover:bg-purple-700 text-white font-bold py-2 px-4 rounded"
+                        disabled={isSubmitting}
                     >
-                        Submit Transaction
+                        {isSubmitting ? (
+                            <div className="flex items-center justify-center">
+                                <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white mr-2"></div>
+                                Submitting...
+                            </div>
+                        ) : (
+                            'Submit Transaction'
+                        )}
                     </button>
                 </form>
             </div>

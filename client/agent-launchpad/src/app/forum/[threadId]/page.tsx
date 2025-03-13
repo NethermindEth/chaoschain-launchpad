@@ -6,6 +6,7 @@ import { useParams, useSearchParams } from "next/navigation";
 import { FiArrowLeft } from "react-icons/fi";
 import { useEffect, useState, useRef } from "react";
 import { wsService } from "@/services/websocket";
+import { fetchValidators, proposeBlock } from "@/services/api";
 
 interface AgentVote {
     validatorId: string;
@@ -29,19 +30,14 @@ interface Validator {
     Name: string;
 }
 
-interface Transaction {
-    from: string;
-    to: string;
-    amount: number;
-    fee: number;
-    content: string;
-    timestamp: number;
+interface ThreadDetailPageProps {
+  chainId: string;
 }
 
-export default function ThreadDetailPage() {
+export default function ThreadDetailPage({ chainId }: ThreadDetailPageProps) {
   const params = useParams();
-  const searchParams = useSearchParams();
   const { threadId } = params;
+  const searchParams = useSearchParams();
   const [replies, setReplies] = useState<AgentVote[]>([]);
   const [votingResult, setVotingResult] = useState<VotingResult | null>(null);
   const [blockVerdict, setBlockVerdict] = useState<any | null>(null);
@@ -111,20 +107,15 @@ export default function ThreadDetailPage() {
     }
 
     // Propose block when the component mounts
-    const proposeBlock = async () => {
+    const initBlock = async () => {
       try {
-        const response = await fetch("http://127.0.0.1:3000/api/block/propose?wait=true", {
-          method: "POST",
-        });
-        if (!response.ok) {
-          throw new Error("Failed to propose block");
-        }
+        await proposeBlock(chainId);
       } catch (error) {
         console.error("Error proposing block:", error);
       }
     };
 
-    proposeBlock();
+    initBlock();
 
     // Cleanup subscriptions when the component unmounts
     return () => {
@@ -140,12 +131,10 @@ export default function ThreadDetailPage() {
   }, []);
 
   useEffect(() => {
-    // Fetch validators to get their names
-    const fetchValidators = async () => {
+    const fetchValidatorData = async () => {
       try {
-        const response = await fetch('http://127.0.0.1:3000/api/validators');
-        const data = await response.json();
-        const validatorMap = data.validators.reduce((acc: { [key: string]: string }, v: Validator) => {
+        const validators = await fetchValidators(chainId as string);
+        const validatorMap = validators.reduce((acc: { [key: string]: string }, v: Validator) => {
           acc[v.ID] = v.Name;
           return acc;
         }, {});
@@ -155,8 +144,8 @@ export default function ThreadDetailPage() {
       }
     };
 
-    fetchValidators();
-  }, []);
+    fetchValidatorData();
+  }, [chainId]);
 
   return (
     <>
@@ -165,13 +154,20 @@ export default function ThreadDetailPage() {
         <meta name="viewport" content="width=device-width, initial-scale=1" />
       </Head>
       <div className="min-h-screen bg-gray-900 text-gray-100 p-8">
-        {/* Back to Forum */}
-        <Link href="/forum" legacyBehavior>
-          <a className="inline-flex items-center text-green-400 hover:underline mb-6 text-sm">
-            <FiArrowLeft className="mr-1" />
-            Back to Forum
-          </a>
-        </Link>
+        {/* Navigation */}
+        <div className="flex justify-between items-center mb-6">
+          <Link href={`/${chainId}/forum`} legacyBehavior>
+            <a className="inline-flex items-center text-green-400 hover:underline text-sm">
+              <FiArrowLeft className="mr-1" />
+              Back to Forum
+            </a>
+          </Link>
+          <Link href="/chain" legacyBehavior>
+            <a className="inline-flex items-center text-green-400 hover:underline text-sm">
+              Back to Homepage
+            </a>
+          </Link>
+        </div>
 
         {/* Thread Header */}
         <div className="bg-gray-800 p-8 rounded-lg shadow-lg">

@@ -177,16 +177,28 @@ func GetChain(chainID string) *Blockchain {
 	return chains[chainID]
 }
 
+type ChainInfo struct {
+	ChainID string `json:"chain_id"`
+	Name    string `json:"name"`
+	Agents  int    `json:"agents"`
+	Blocks  int    `json:"blocks"`
+}
+
 // GetAllChains returns a list of all chain IDs
-func GetAllChains() []string {
+func GetAllChains() []ChainInfo {
 	chainsLock.RLock()
 	defer chainsLock.RUnlock()
 
-	chainIDs := make([]string, 0, len(chains))
-	for id := range chains {
-		chainIDs = append(chainIDs, id)
+	chainInfos := make([]ChainInfo, 0, len(chains))
+	for id, chain := range chains {
+		chainInfos = append(chainInfos, ChainInfo{
+			ChainID: id,
+			Name:    id,                   // Using chainID as name for now
+			Agents:  len(chain.Nodes) - 1, // Subtract 1 to exclude bootstrap node
+			Blocks:  len(chain.Blocks),
+		})
 	}
-	return chainIDs
+	return chainInfos
 }
 
 // RegisterNode adds a node to the chain's network

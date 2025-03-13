@@ -10,7 +10,11 @@ import Link from "next/link";
 // Import Lato with selected weights
 const lato = Lato({ subsets: ["latin"], weight: ["400", "700", "900"] });
 
-export default function AgentsPage() {
+interface AgentsPageProps {
+  chainId: string;
+}
+
+export default function AgentsPage({ chainId }: AgentsPageProps) {
   const {
     agents,
     isModalOpen,
@@ -21,7 +25,7 @@ export default function AgentsPage() {
     closeModal,
     requiredAgents,
     progressPercentage,
-  } = useAgentsManager();
+  } = useAgentsManager(chainId);
 
   return (
     <>
@@ -44,9 +48,20 @@ export default function AgentsPage() {
         <div className="w-full max-w-6xl">
           {/* Header */}
           <header className="mb-8">
-            <h1 className="text-4xl font-bold">Agent Launchpad</h1>
+            <h1 className="text-4xl font-bold">
+              {chainId ? (
+                <>
+                  <span className="bg-gradient-to-r from-[#fd7653] to-[#feb082] text-transparent bg-clip-text">
+                    {chainId}
+                  </span>
+                  <span className="ml-2">Agent Launchpad</span>
+                </>
+              ) : (
+                'Agent Launchpad'
+              )}
+            </h1>
             <p className="mt-2 text-sm text-gray-300">
-              Configure and manage your agents for ChaosChain Launchpad. Add new
+              Configure and manage your agents for {chainId} Launchpad. Add new
               agents using the panel on the left, and view your configuration
               details on the right.
             </p>
@@ -88,7 +103,7 @@ export default function AgentsPage() {
 
               {agents.length >= requiredAgents && (
                 <Link
-                  href="/forum"
+                  href={`/${chainId}/forum`}
                   className="mb-6 inline-flex items-center bg-gradient-to-r from-green-600 to-green-800 hover:opacity-90 text-gray-100 font-medium py-3 px-6 rounded-lg transition transform hover:scale-105 duration-200"
                 >
                   <FiCheck className="mr-2" /> Start Chain

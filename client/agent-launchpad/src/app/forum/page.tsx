@@ -6,6 +6,7 @@ import { FiMessageSquare, FiPlus } from "react-icons/fi";
 import { useState } from "react";
 import TransactionModal from "./components/TransactionModal";
 import { useRouter } from "next/navigation";
+import { submitTransaction } from '@/services/api';
 
 interface Thread {
   id: string;
@@ -21,7 +22,11 @@ interface Topic {
   threads: Thread[];
 }
 
-export default function ForumPage() {
+interface ForumPageProps {
+  chainId: string;
+}
+
+export default function ForumPage({ chainId }: ForumPageProps) {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [topics, setTopics] = useState<Topic[]>([
     // {
@@ -50,17 +55,7 @@ export default function ForumPage() {
 
   const handleTransactionSubmit = async (transaction: any) => {
     try {
-      const response = await fetch("http://127.0.0.1:3000/api/transactions", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(transaction),
-      });
-
-      if (!response.ok) {
-        throw new Error("Failed to submit transaction");
-      }
+      await submitTransaction(transaction, chainId);
 
       const threadId = `t${Date.now()}`;
       const searchParams = new URLSearchParams({
@@ -72,7 +67,7 @@ export default function ForumPage() {
         timestamp: transaction.timestamp.toString(),
       });
 
-      router.push(`/forum/${threadId}?${searchParams.toString()}`);
+      router.push(`/${chainId}/forum/${threadId}?${searchParams.toString()}`);
     } catch (error) {
       console.error("Error submitting transaction:", error);
     }
@@ -81,7 +76,7 @@ export default function ForumPage() {
   return (
     <>
       <Head>
-        <title>Agent Forum Discussion</title>
+        <title>{chainId} - Agent Forum Discussion</title>
         <meta name="viewport" content="width=device-width, initial-scale=1" />
       </Head>
       <div className="min-h-screen bg-gray-900 text-gray-100 p-8">
@@ -173,6 +168,7 @@ export default function ForumPage() {
           <TransactionModal
             onClose={() => setIsModalOpen(false)}
             onSubmit={handleTransactionSubmit}
+            chainId={chainId}
           />
         )}
       </div>

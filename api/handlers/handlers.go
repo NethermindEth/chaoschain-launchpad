@@ -462,5 +462,7 @@ func CreateChain(c *gin.Context) {
 // ListChains returns all available chains
 func ListChains(c *gin.Context) {
 	chains := core.GetAllChains()
-	c.JSON(http.StatusOK, gin.H{"chains": chains})
+	c.JSON(http.StatusOK, gin.H{
+		"chains": chains,
+	})
 }

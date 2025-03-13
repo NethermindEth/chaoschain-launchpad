@@ -16,6 +16,45 @@ interface RegisterAgentResponse {
     message: string;
 }
 
+interface CreateChainParams {
+    chain_id: string;
+}
+
+interface CreateChainResponse {
+    message: string;
+    chain_id: string;
+    bootstrap_node: {
+        p2p_port: number;
+        api_port: number;
+    };
+}
+
+export interface Chain {
+    chain_id: string;
+    name: string;
+    agents: number;
+    blocks: number;
+}
+
+export interface Validator {
+    ID: string;
+    Name: string;
+    Traits: string[];
+    Style: string;
+    Influences: string[];
+    Mood: string;
+    CurrentPolicy: string;
+}
+
+interface Transaction {
+    content: string;
+    from: string;
+    to: string;
+    amount: number;
+    fee: number;
+    timestamp: number;
+}
+
 export class ApiError extends Error {
     constructor(
         message: string,
@@ -27,12 +66,13 @@ export class ApiError extends Error {
     }
 }
 
-export async function registerAgent(agent: RegisterAgentParams): Promise<RegisterAgentResponse> {
+export async function registerAgent(agent: RegisterAgentParams, chainId: string): Promise<RegisterAgentResponse> {
     try {
-        const response = await fetch(`${API_CONFIG.BASE_URL}${API_CONFIG.ENDPOINTS.REGISTER}`, {
+        const response = await fetch(`${API_CONFIG.BASE_URL}${API_CONFIG.ENDPOINTS.REGISTER_AGENT}`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
+                'X-Chain-Id': chainId,
             },
             body: JSON.stringify({
                 ...agent,
@@ -59,5 +99,108 @@ export async function registerAgent(agent: RegisterAgentParams): Promise<Registe
         throw new ApiError(
             error instanceof Error ? error.message : 'Unknown error occurred'
         );
+    }
+}
+
+export async function createChain(params: CreateChainParams): Promise<CreateChainResponse> {
+    try {
+        const response = await fetch(`${API_CONFIG.BASE_URL}${API_CONFIG.ENDPOINTS.CREATE_CHAIN}`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(params),
+        });
+
+        const data = await response.json();
+
+        if (!response.ok) {
+            throw new ApiError(
+                data.error || 'Failed to create chain',
+                response.status,
+                data
+            );
+        }
+
+        return data as CreateChainResponse;
+    } catch (error) {
+        if (error instanceof ApiError) {
+            throw error;
+        }
+        throw new ApiError(
+            error instanceof Error ? error.message : 'Unknown error occurred'
+        );
+    }
+}
+
+export async function listChains(): Promise<Chain[]> {
+    try {
+        const response = await fetch(`${API_CONFIG.BASE_URL}${API_CONFIG.ENDPOINTS.FETCH_CHAINS}`);
+        const data = await response.json();
+
+        if (!response.ok) {
+            throw new ApiError(
+                data.error || 'Failed to fetch chains',
+                response.status,
+                data
+            );
+        }
+
+        return data.chains;
+    } catch (error) {
+        if (error instanceof ApiError) {
+            throw error;
+        }
+        throw new ApiError(
+            error instanceof Error ? error.message : 'Unknown error occurred'
+        );
+    }
+}
+
+export async function fetchValidators(chainId: string): Promise<Validator[]> {
+    const response = await fetch(`${API_CONFIG.BASE_URL}${API_CONFIG.ENDPOINTS.FETCH_VALIDATORS}`, {
+        headers: {
+            'X-Chain-Id': chainId,
+        },
+    });
+    const data = await response.json();
+    if (!response.ok) {
+        throw new ApiError(data.error || 'Failed to fetch validators');
+    }
+    return data.validators.map(({ ID, Name, Traits, Style, Influences, Mood, CurrentPolicy }: Validator) => ({
+        ID,
+        Name,
+        Traits,
+        Style,
+        Influences,
+        Mood,
+        CurrentPolicy
+    }));
+}
+
+export async function proposeBlock(chainId: string): Promise<void> {
+    const response = await fetch(`${API_CONFIG.BASE_URL}${API_CONFIG.ENDPOINTS.PROPOSE_BLOCK}?wait=true`, {
+        method: 'POST',
+        headers: {
+            'X-Chain-Id': chainId,
+        },
+    });
+    if (!response.ok) {
+        throw new ApiError('Failed to propose block');
+    }
+}
+
+export async function submitTransaction(transaction: Transaction, chainId: string): Promise<void> {
+    const response = await fetch(`${API_CONFIG.BASE_URL}${API_CONFIG.ENDPOINTS.SUBMIT_TRANSACTION}`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-Chain-Id': chainId,
+        },
+        body: JSON.stringify(transaction),
+    });
+
+    if (!response.ok) {
+        throw new ApiError('Failed to submit transaction');
     }
 } 

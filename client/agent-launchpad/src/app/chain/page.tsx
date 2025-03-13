@@ -1,7 +1,10 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
+import { createChain, listChains } from '@/services/api';
+import type { Chain } from '@/services/api';
+import { useRouter } from 'next/navigation';
 
 // Reusable Tabs component
 interface TabItem {
@@ -46,21 +49,56 @@ const AVAILABLE_CHAINS = [
 export default function GenesisPage() {
   const [chainName, setChainName] = useState("");
   const [activeTab, setActiveTab] = useState("create");
+  const [availableChains, setAvailableChains] = useState<Chain[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const router = useRouter();
 
   const chainTabs = [
     { id: "create", label: "Create New Chain" },
     { id: "join", label: "Join Existing Chain" },
   ];
 
-  const handleCreateChain = (e: React.FormEvent<HTMLFormElement>) => {
+  const fetchChains = async () => {
+    try {
+      setLoading(true);
+      const chains = await listChains();
+      setAvailableChains(chains);
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to fetch chains');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (activeTab === 'join') {
+      fetchChains();
+    }
+  }, [activeTab]);
+
+  const handleCreateChain = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    // TODO: Implement chain creation logic
-    console.log("Creating new chain:", chainName);
+    
+    try {
+      const data = await createChain({
+        chain_id: chainName.toLowerCase().replace(/\s+/g, '-'),
+      });
+      console.log('Chain created successfully:', data);
+
+      setChainName('');
+      // Switch to join tab and fetch chains
+      setActiveTab('join');
+      
+    } catch (error) {
+      console.error('Error creating chain:', error);
+      alert(error instanceof Error ? error.message : 'Failed to create chain');
+    }
   };
 
   const handleJoinChain = (chainId: string) => {
-    // TODO: Implement chain joining logic
-    console.log("Joining chain:", chainId);
+    router.push(`/${chainId}/agents`);
   };
 
   return (
@@ -123,12 +161,14 @@ export default function GenesisPage() {
               Select from the list of available chains to join and contribute to their chaos.
             </p>
             
+            {loading && <p>Loading chains...</p>}
+            {error && <p className="text-red-500">Error: {error}</p>}
+            
             <div className="space-y-4">
-              {AVAILABLE_CHAINS.map((chain) => (
+              {availableChains.map((chain) => (
                 <div 
-                  key={chain.id}
+                  key={chain.chain_id}
                   className="border border-gray-800 rounded-lg p-4 hover:bg-gray-800 transition-colors cursor-pointer"
-                  onClick={() => handleJoinChain(chain.id)}
                 >
                   <div className="flex justify-between items-center">
                     <div>
@@ -137,7 +177,13 @@ export default function GenesisPage() {
                         {chain.agents} agents · {chain.blocks} blocks
                       </p>
                     </div>
-                    <button className="bg-gradient-to-r from-[#fd7653] to-[#feb082] text-white font-medium px-6 py-2 rounded-lg hover:shadow-lg shadow-sm transition-all duration-300">
+                    <button 
+                      className="bg-gradient-to-r from-[#fd7653] to-[#feb082] text-white font-medium px-6 py-2 rounded-lg hover:shadow-lg shadow-sm transition-all duration-300"
+                      onClick={(e) => {
+                        e.stopPropagation(); // Prevent parent div click
+                        handleJoinChain(chain.chain_id);
+                      }}
+                    >
                       Join
                     </button>
                   </div>
