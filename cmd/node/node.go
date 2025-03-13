@@ -14,8 +14,7 @@ import (
 )
 
 type NodeConfig struct {
-	P2PPort       int
-	APIPort       int
+	ChainConfig   p2p.ChainConfig
 	BootstrapNode string
 }
 
@@ -29,23 +28,21 @@ type Node struct {
 func NewNode(config NodeConfig) *Node {
 	return &Node{
 		config:   config,
-		p2pNode:  p2p.NewNode(config.P2PPort),
+		p2pNode:  p2p.NewNode(config.ChainConfig),
 		shutdown: make(chan struct{}),
 	}
 }
 
 func (n *Node) Start() error {
 	// Initialize components
-	mempool.InitMempool(3600)
-	n.mempool = mempool.GetMempool()
-	core.InitBlockchain(n.mempool)
+	n.mempool = mempool.InitMempool(n.config.ChainConfig.ChainID, 3600)
 
 	// Start P2P server
-	log.Printf("Starting P2P node on port %d...", n.config.P2PPort)
-	n.p2pNode.StartServer(n.config.P2PPort)
+	log.Printf("Starting P2P node on port %d...", n.config.ChainConfig.P2PPort)
+	n.p2pNode.StartServer(n.config.ChainConfig.P2PPort)
 
 	// Register this node in the network
-	addr := fmt.Sprintf("localhost:%d", n.config.P2PPort)
+	addr := fmt.Sprintf("localhost:%d", n.config.ChainConfig.P2PPort)
 	p2p.RegisterNode(addr, n.p2pNode)
 
 	// Set this as the default P2P node
@@ -54,7 +51,7 @@ func (n *Node) Start() error {
 	// Give the server a moment to initialize
 	time.Sleep(time.Second)
 
-	// Connect to bootstrap node if provided
+	// If bootstrap node is specified, connect to it
 	if n.config.BootstrapNode != "" {
 		n.p2pNode.ConnectToPeer(n.config.BootstrapNode)
 	}
@@ -67,11 +64,11 @@ func (n *Node) Stop() {
 }
 
 func (n *Node) GetP2PPort() int {
-	return n.config.P2PPort
+	return n.config.ChainConfig.P2PPort
 }
 
 func (n *Node) GetAPIPort() int {
-	return n.config.APIPort
+	return n.config.ChainConfig.APIPort
 }
 
 func (n *Node) GetP2PNode() *p2p.Node {
@@ -82,10 +79,10 @@ func (n *Node) GetMempool() core.MempoolInterface {
 	return n.mempool
 }
 
-func (n *Node) RegisterProducer(id string, p *producer.Producer) {
-	registry.RegisterProducer(id, p)
+func (n *Node) RegisterProducer(chainID string, id string, p *producer.Producer) {
+	registry.RegisterProducer(chainID, id, p)
 }
 
-func (n *Node) RegisterValidator(id string, v *validator.Validator) {
-	registry.RegisterValidator(id, v)
+func (n *Node) RegisterValidator(chainID string, id string, v *validator.Validator) {
+	registry.RegisterValidator(chainID, id, v)
 }

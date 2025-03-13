@@ -91,17 +91,17 @@ func (bc *BlockConsensus) GetDiscussionContext(currentRound int) string {
 
 // StartBlockDiscussion initiates multi-round discussion
 func StartBlockDiscussion(validatorID string, block *core.Block, traits []string, name string) {
-	cm := GetConsensusManager()
+	cm := GetConsensusManager(block.ChainID)
 	consensus := cm.GetActiveConsensus()
 	if consensus == nil {
 		return
 	}
 
-	// Format transactions for analysis
+	// // Format transactions for analysis
 	var txContents []string
 	for _, tx := range block.Txs {
-		txContents = append(txContents, fmt.Sprintf("- From %s: \"%s\" (Amount: %.2f)",
-			tx.From, tx.Content, tx.Amount))
+		txContents = append(txContents, fmt.Sprintf("Content: %s",
+			tx.Content))
 	}
 
 	// Participate in discussion rounds
@@ -143,8 +143,8 @@ func StartBlockDiscussion(validatorID string, block *core.Block, traits []string
 		"stance": "Either SUPPORT, OPPOSE, or QUESTION",
 		"reason": "A brief explanation for your stance, referencing specific evidence or points from the discussions."
 		}
-		Do not include any additional text or formatting.`,	
-		name, traits, block.Height, strings.Join(txContents, "\n"), previousDiscussions, round, DiscussionRounds)
+		Do not include any additional text or formatting.`,
+			name, traits, block.Height, strings.Join(txContents, "\n"), previousDiscussions, round, DiscussionRounds)
 
 		response := ai.GenerateLLMResponse(prompt)
 
@@ -158,7 +158,7 @@ func StartBlockDiscussion(validatorID string, block *core.Block, traits []string
 		}
 
 		// Add to discussion
-		consensus.AddDiscussion(validatorID, llmResult.Opinion + " " + llmResult.Reason, llmResult.Stance, round)
+		consensus.AddDiscussion(validatorID, llmResult.Opinion+" "+llmResult.Reason, llmResult.Stance, round)
 
 		// Broadcast via WebSocket
 		communication.BroadcastEvent(communication.EventAgentVote, Discussion{
@@ -188,10 +188,10 @@ func StartBlockDiscussion(validatorID string, block *core.Block, traits []string
 	"reason": "A brief explanation stating why, referencing specific evidence from the discussions."
 	}
 	Do not include any additional text or formatting.`,
-	name, txContents, consensus.GetDiscussionContext(DiscussionRounds+1))
+		name, txContents, consensus.GetDiscussionContext(DiscussionRounds+1))
 
 	finalResponse := ai.GenerateLLMResponse(finalPrompt)
-	
+
 	type FinalVoteResponse struct {
 		Stance string `json:"stance"`
 		Reason string `json:"reason"`

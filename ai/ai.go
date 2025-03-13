@@ -159,10 +159,10 @@ func GenerateLLMResponse(prompt string) string {
 		openai.ChatCompletionRequest{
 			Model: openai.GPT3Dot5Turbo,
 			Messages: []openai.ChatCompletionMessage{
-				{
-					Role:    openai.ChatMessageRoleSystem,
-					Content: "You are a chaotic blockchain validator with strong opinions. Be concise but creative.",
-				},
+				// {
+				// 	Role:    openai.ChatMessageRoleSystem,
+				// 	Content: "You are a chaotic blockchain validator with strong opinions. Be concise but creative.",
+				// },
 				{
 					Role:    openai.ChatMessageRoleUser,
 					Content: prompt,

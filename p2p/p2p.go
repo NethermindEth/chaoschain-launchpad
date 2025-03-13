@@ -14,8 +14,17 @@ type Peer struct {
 	Conn    net.Conn
 }
 
+// ChainConfig represents the configuration for a specific chain
+type ChainConfig struct {
+	ChainID    string
+	P2PPort    int
+	APIPort    int
+	NetworkKey string // Optional: Could be used to further isolate networks
+}
+
 // Node manages peer connections and message handling
 type Node struct {
+	ChainID     string
 	Peers       map[string]*Peer
 	mu          sync.Mutex
 	listener    net.Listener
@@ -23,7 +32,7 @@ type Node struct {
 	port        int
 }
 
-var defaultNode = NewNode(8080)
+var defaultNode = NewNode(ChainConfig{ChainID: "main", P2PPort: 8080})
 
 // GetP2PNode returns the default P2P node instance
 func GetP2PNode() *Node {
@@ -31,11 +40,12 @@ func GetP2PNode() *Node {
 }
 
 // NewNode initializes a new P2P network node
-func NewNode(port int) *Node {
+func NewNode(config ChainConfig) *Node {
 	return &Node{
+		ChainID:     config.ChainID,
 		Peers:       make(map[string]*Peer),
 		subscribers: make(map[string][]func([]byte)),
-		port:        port,
+		port:        config.P2PPort,
 	}
 }
 
@@ -70,6 +80,12 @@ const (
 	MIN_PEERS = 3  // Minimum desired peer connections
 )
 
+// Add handshake struct at package level
+type handshakeMsg struct {
+	ChainID string `json:"chain_id"`
+	Address string `json:"address"`
+}
+
 // ConnectToPeer connects to a peer at a given address
 func (n *Node) ConnectToPeer(address string) {
 	myAddr := fmt.Sprintf("localhost:%d", n.port)
@@ -94,6 +110,38 @@ func (n *Node) ConnectToPeer(address string) {
 		return
 	}
 
+	// Send handshake
+	handshake := handshakeMsg{
+		ChainID: n.ChainID,
+		Address: myAddr,
+	}
+
+	handshakeData, _ := json.Marshal(handshake)
+	if _, err := conn.Write(handshakeData); err != nil {
+		conn.Close()
+		return
+	}
+
+	// Wait for handshake response
+	buffer := make([]byte, 1024)
+	bytesRead, err := conn.Read(buffer)
+	if err != nil {
+		conn.Close()
+		return
+	}
+
+	var response handshakeMsg
+	if err := json.Unmarshal(buffer[:bytesRead], &response); err != nil {
+		conn.Close()
+		return
+	}
+
+	// Verify chain ID
+	if response.ChainID != n.ChainID {
+		conn.Close()
+		return
+	}
+
 	peer := &Peer{Address: address, Conn: conn}
 	n.mu.Lock()
 	n.Peers[address] = peer
@@ -103,32 +151,55 @@ func (n *Node) ConnectToPeer(address string) {
 	log.Printf("Node %s connected to peer: %s\n", myAddr, address)
 }
 
-// Checks if a port is ephemeral
-func isEphemeralPort(port int) bool {
-	return port >= 49152 && port <= 65535 // Typical ephemeral port range
-}
-
 // handleConnection handles incoming peer connections
-func (p *Node) handleConnection(conn net.Conn) {
-	myAddr := fmt.Sprintf("localhost:%d", p.port)
+func (n *Node) handleConnection(conn net.Conn) {
+	// Read initial handshake
+	buffer := make([]byte, 1024)
+	bytesRead, err := conn.Read(buffer)
+	if err != nil {
+		conn.Close()
+		return
+	}
 
-	// Extract port from remote address and create localhost address
-	_, portStr, _ := net.SplitHostPort(conn.RemoteAddr().String())
-	peerAddr := fmt.Sprintf("localhost:%s", portStr)
+	var handshake handshakeMsg
+	if err := json.Unmarshal(buffer[:bytesRead], &handshake); err != nil {
+		conn.Close()
+		return
+	}
+
+	// Verify chain ID
+	if handshake.ChainID != n.ChainID {
+		log.Printf("Rejecting peer from different chain: %s", handshake.ChainID)
+		conn.Close()
+		return
+	}
+
+	myAddr := fmt.Sprintf("localhost:%d", n.port)
+
+	// Use the address sent in handshake
+	peerAddr := handshake.Address
 
 	// Only accept connection if we don't have this peer and it's not ourselves
-	p.mu.Lock()
-	if _, exists := p.Peers[peerAddr]; exists || peerAddr == myAddr {
-		p.mu.Unlock()
+	n.mu.Lock()
+	if _, exists := n.Peers[peerAddr]; exists || peerAddr == myAddr {
+		n.mu.Unlock()
 		conn.Close()
 		return
 	}
 
 	peer := &Peer{Address: peerAddr, Conn: conn}
-	p.Peers[peerAddr] = peer
-	p.mu.Unlock()
+	n.Peers[peerAddr] = peer
+	n.mu.Unlock()
 
-	go p.listenToPeer(peer)
+	// Send handshake response
+	response := handshakeMsg{
+		ChainID: n.ChainID,
+		Address: myAddr,
+	}
+	handshakeData, _ := json.Marshal(response)
+	conn.Write(handshakeData)
+
+	go n.listenToPeer(peer)
 	log.Printf("Node %s accepted connection from: %s\n", myAddr, peerAddr)
 }
 
@@ -195,15 +266,15 @@ func (n *Node) handleMessage(msg Message, peer *Peer) {
 				}
 			}
 		}
-	// case "TRANSACTION":
-	// 	// Process incoming transaction
-	// 	log.Println("Transaction received:", msg.Data)
-	// case "BLOCK":
-	// 	// Process new block
-	// 	log.Println("New block received:", msg.Data)
-	// case "VALIDATION":
-	// 	// Process validation result
-	// 	log.Println("Validation received:", msg.Data)
+		// case "TRANSACTION":
+		// 	// Process incoming transaction
+		// 	log.Println("Transaction received:", msg.Data)
+		// case "BLOCK":
+		// 	// Process new block
+		// 	log.Println("New block received:", msg.Data)
+		// case "VALIDATION":
+		// 	// Process validation result
+		// 	log.Println("Validation received:", msg.Data)
 	}
 }
 
@@ -245,4 +316,10 @@ func (n *Node) GetPort() int {
 
 func SetDefaultNode(n *Node) {
 	defaultNode = n
+}
+
+func (n *Node) GetPeerCount() int {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	return len(n.Peers)
 }
