@@ -28,8 +28,9 @@ type Validator struct {
 }
 
 var (
-	validators      = make(map[string]*Validator)
-	validatorsMutex = sync.RWMutex{}
+	// Map of chainID -> map of validatorID -> Validator
+	validators  = make(map[string]map[string]*Validator)
+	validatorMu sync.RWMutex
 )
 
 // NewValidator initializes a new Validator with a unique personality.
@@ -49,9 +50,12 @@ func NewValidator(id string, name string, traits []string, style string, influen
 	}
 
 	// Store validator in the global map
-	validatorsMutex.Lock()
-	validators[id] = validator
-	validatorsMutex.Unlock()
+	validatorMu.Lock()
+	if validators[id] == nil {
+		validators[id] = make(map[string]*Validator)
+	}
+	validators[id][id] = validator
+	validatorMu.Unlock()
 
 	// Subscribe to the BLOCK_DISCUSSION_TRIGGER events via NATS.
 	if _, err := core.NatsBrokerInstance.Subscribe("BLOCK_DISCUSSION_TRIGGER", func(m *nats.Msg) {
@@ -70,22 +74,29 @@ func NewValidator(id string, name string, traits []string, style string, influen
 }
 
 // GetAllValidators returns a list of all registered validators
-func GetAllValidators() []Validator {
-	validatorsMutex.RLock()
-	defer validatorsMutex.RUnlock()
+func GetAllValidators(chainID string) []*Validator {
+	validatorMu.RLock()
+	defer validatorMu.RUnlock()
 
-	var result []Validator
-	for _, v := range validators {
-		result = append(result, *v)
+	if validators[chainID] == nil {
+		return []*Validator{}
 	}
-	return result
+
+	vals := make([]*Validator, 0, len(validators[chainID]))
+	for _, v := range validators[chainID] {
+		vals = append(vals, v)
+	}
+	return vals
 }
 
 // GetValidatorByID returns a validator by its ID
-func GetValidatorByID(id string) *Validator {
-	validatorsMutex.RLock()
-	defer validatorsMutex.RUnlock()
-	return validators[id]
+func GetValidatorByID(chainID string, id string) *Validator {
+	validatorMu.RLock()
+	defer validatorMu.RUnlock()
+	if validators[chainID] == nil {
+		return nil
+	}
+	return validators[chainID][id]
 }
 
 // ListenForBlocks listens for incoming block proposals from the network
@@ -144,4 +155,13 @@ func (v *Validator) ValidateBlock(block core.Block, announcement string) (bool, 
 
 	log.Printf("%s has validated block %d: %v\n", v.Name, block.Height, isValid)
 	return isValid, reason, meme
+}
+
+func RegisterValidator(chainID string, id string, v *Validator) {
+	validatorMu.Lock()
+	defer validatorMu.Unlock()
+	if validators[chainID] == nil {
+		validators[chainID] = make(map[string]*Validator)
+	}
+	validators[chainID][id] = v
 }

@@ -8,19 +8,20 @@ import (
 )
 
 var (
-	producers  = make(map[string]*producer.Producer)
-	validators = make(map[string]*validator.Validator)
-	agentLock  sync.Mutex
+	// Map of chainID -> map of producerID -> Producer
+	producers = make(map[string]map[string]*producer.Producer)
+	agentLock sync.Mutex
 )
 
-func RegisterProducer(id string, p *producer.Producer) {
+func RegisterProducer(chainID string, id string, p *producer.Producer) {
 	agentLock.Lock()
 	defer agentLock.Unlock()
-	producers[id] = p
+	if producers[chainID] == nil {
+		producers[chainID] = make(map[string]*producer.Producer)
+	}
+	producers[chainID][id] = p
 }
 
-func RegisterValidator(id string, v *validator.Validator) {
-	agentLock.Lock()
-	defer agentLock.Unlock()
-	validators[id] = v
+func RegisterValidator(chainID string, id string, v *validator.Validator) {
+	validator.RegisterValidator(chainID, id, v)
 }

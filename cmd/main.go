@@ -9,37 +9,48 @@ import (
 	"github.com/NethermindEth/chaoschain-launchpad/cmd/node"
 	_ "github.com/NethermindEth/chaoschain-launchpad/config" // Initialize config
 	"github.com/NethermindEth/chaoschain-launchpad/core"
+	"github.com/NethermindEth/chaoschain-launchpad/mempool"
+	"github.com/NethermindEth/chaoschain-launchpad/p2p"
 	"github.com/gin-gonic/gin"
 )
 
 func main() {
 	// Parse command line flags
+	chainID := flag.String("chain", "mainnet", "Chain ID")
 	port := flag.Int("port", 8080, "P2P port")
 	apiPort := flag.Int("api", 3000, "API port")
-	bootstrapNode := flag.String("bootstrap", "", "Bootstrap node address")
 	nats := flag.String("nats", "nats://localhost:4222", "NATS URL")
 	flag.Parse()
 
-	// Create and start node
-	node := node.NewNode(node.NodeConfig{
-		P2PPort:       *port,
-		APIPort:       *apiPort,
-		BootstrapNode: *bootstrapNode,
+	// Create and start node with chain configuration
+	genesisNode := node.NewNode(node.NodeConfig{
+		ChainConfig: p2p.ChainConfig{
+			ChainID: *chainID,
+			P2PPort: *port,
+			APIPort: *apiPort,
+		},
 	})
 
-	if err := node.Start(); err != nil {
+	if err := genesisNode.Start(); err != nil {
 		log.Fatalf("Failed to start node: %v", err)
 	}
+
+	// Initialize chain-specific components
+	core.InitBlockchain(*chainID, mempool.GetMempool(*chainID))
+
+	// Register this node with the chain
+	chain := core.GetChain(*chainID)
+	addr := fmt.Sprintf("localhost:%d", *port)
+	chain.RegisterNode(addr, genesisNode.GetP2PNode())
 
 	// Start NATS messaging
 	core.SetupNATS(*nats)
 	defer core.CloseNATS()
 
-	log.Println("Application started with NATS messaging enabled.")
+	log.Printf("Chain %s started with P2P port %d and API port %d", *chainID, *port, *apiPort)
 
 	// Start API server
-	log.Printf("Starting API server on port %d...", *apiPort)
 	router := gin.New()
-	api.SetupRoutes(router)
+	api.SetupRoutes(router, *chainID)
 	log.Fatal(router.Run(fmt.Sprintf(":%d", *apiPort)))
 }
