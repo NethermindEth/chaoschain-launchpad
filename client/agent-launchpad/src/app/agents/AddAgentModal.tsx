@@ -46,10 +46,10 @@ export default function AddAgentModal({
 
   return (
     <div className="fixed inset-0 flex items-center justify-center bg-black bg-opacity-50 z-50 transition-opacity duration-300">
-      <div className="bg-gray-800 p-6 rounded-lg w-full max-w-lg overflow-y-auto max-h-full shadow-xl transform transition-all duration-300">
+      <div className="bg-gray-900 p-6 rounded-lg w-full max-w-lg overflow-y-auto max-h-full shadow-xl transform transition-all duration-300">
         <div className="flex justify-between items-center mb-4">
           <h2 className="text-2xl font-bold flex items-center text-white">
-            <FiUserPlus className="mr-2 text-green-400" /> Add New Agent
+            <FiUserPlus className="mr-2 text-[#fd7653]" /> Add New Agent
           </h2>
           <button
             onClick={onClose}
@@ -72,7 +72,7 @@ export default function AddAgentModal({
               onChange={handleChange}
               required
               placeholder="e.g., Agent Alpha"
-              className="w-full p-2 rounded bg-gray-700 text-gray-100 placeholder-gray-400"
+              className="w-full p-2 rounded bg-gray-800 text-gray-100 placeholder-gray-400"
             />
           </div>
           <div>
@@ -84,7 +84,7 @@ export default function AddAgentModal({
               name="role"
               value={formData.role}
               onChange={handleChange}
-              className="w-full p-2 rounded bg-gray-700 text-gray-100"
+              className="w-full p-2 rounded bg-gray-800 text-gray-100"
             >
               <option value="validator">Validator</option>
               <option value="producer">Producer</option>
@@ -97,7 +97,7 @@ export default function AddAgentModal({
               {traits.map((trait, index) => (
                 <div
                   key={index}
-                  className="flex items-center justify-between bg-gray-700 p-2 rounded text-gray-100"
+                  className="flex items-center justify-between bg-gray-800 p-2 rounded text-gray-100"
                 >
                   <span>{trait}</span>
                   <button
@@ -115,7 +115,7 @@ export default function AddAgentModal({
                   value={newTrait}
                   onChange={(e) => setNewTrait(e.target.value)}
                   placeholder="e.g., Innovative"
-                  className="w-full p-2 rounded bg-gray-700 text-gray-100 placeholder-gray-400"
+                  className="w-full p-2 rounded bg-gray-800 text-gray-100 placeholder-gray-400"
                 />
                 <button
                   type="button"
@@ -139,7 +139,7 @@ export default function AddAgentModal({
               value={formData.style}
               onChange={handleChange}
               placeholder="e.g., Cyberpunk"
-              className="w-full p-2 rounded bg-gray-700 text-gray-100 placeholder-gray-400"
+              className="w-full p-2 rounded bg-gray-800 text-gray-100 placeholder-gray-400"
             />
           </div>
           {/* Influences Section */}
@@ -149,7 +149,7 @@ export default function AddAgentModal({
               {influences.map((influence, index) => (
                 <div
                   key={index}
-                  className="flex items-center justify-between bg-gray-700 p-2 rounded text-gray-100"
+                  className="flex items-center justify-between bg-gray-800 p-2 rounded text-gray-100"
                 >
                   <span>{influence}</span>
                   <button
@@ -167,7 +167,7 @@ export default function AddAgentModal({
                   value={newInfluence}
                   onChange={(e) => setNewInfluence(e.target.value)}
                   placeholder="e.g., Elon Musk"
-                  className="w-full p-2 rounded bg-gray-700 text-gray-100 placeholder-gray-400"
+                  className="w-full p-2 rounded bg-gray-800 text-gray-100 placeholder-gray-400"
                 />
                 <button
                   type="button"
@@ -190,7 +190,7 @@ export default function AddAgentModal({
               value={formData.mood}
               onChange={handleChange}
               placeholder="e.g., Optimistic"
-              className="w-full p-2 rounded bg-gray-700 text-gray-100 placeholder-gray-400"
+              className="w-full p-2 rounded bg-gray-800 text-gray-100 placeholder-gray-400"
             />
           </div>
           <div className="flex justify-end space-x-4">
@@ -203,7 +203,7 @@ export default function AddAgentModal({
             </button>
             <button
               type="submit"
-              className="flex items-center bg-gradient-to-r from-purple-700 to-purple-900 hover:opacity-90 text-gray-100 font-medium py-2 px-4 rounded transition transform hover:scale-105 duration-200"
+              className="flex items-center bg-gradient-to-r from-[#fd7653] to-[#feb082] hover:opacity-90 text-gray-100 font-medium py-2 px-4 rounded transition transform hover:scale-105 duration-200"
             >
               <FiCheck className="mr-1" /> Save Agent
             </button>

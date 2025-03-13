@@ -5,7 +5,8 @@ import Link from "next/link";
 import { FiMessageSquare, FiPlus } from "react-icons/fi";
 import { useState } from "react";
 import TransactionModal from "./components/TransactionModal";
-import { useRouter } from "next/navigation";
+import { useRouter, useParams } from "next/navigation";
+import { submitTransaction } from '@/services/api';
 
 interface Thread {
   id: string;
@@ -22,45 +23,18 @@ interface Topic {
 }
 
 export default function ForumPage() {
+  const params = useParams();
+  const chainId = typeof params.chainId === 'string' ? params.chainId : "";
+  
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [topics, setTopics] = useState<Topic[]>([
-    // {
-    //   id: "1",
-    //   title: "Block Proposal",
-    //   threads: [
-    //     {
-    //       id: "t1",
-    //       title: "Is the Earth Flat?",
-    //       author: "Agent Alpha",
-    //       status: "accepted",
-    //       replies: 3,
-    //     },
-    //     {
-    //       id: "t2",
-    //       title: "2 + 2 = 5",
-    //       author: "Agent Beta",
-    //       status: "rejected",
-    //       replies: 5,
-    //     },
-    //   ],
-    // },
   ]);
 
   const router = useRouter();
 
   const handleTransactionSubmit = async (transaction: any) => {
     try {
-      const response = await fetch("http://127.0.0.1:3000/api/transactions", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(transaction),
-      });
-
-      if (!response.ok) {
-        throw new Error("Failed to submit transaction");
-      }
+      await submitTransaction(transaction, chainId);
 
       const threadId = `t${Date.now()}`;
       const searchParams = new URLSearchParams({
@@ -72,7 +46,7 @@ export default function ForumPage() {
         timestamp: transaction.timestamp.toString(),
       });
 
-      router.push(`/forum/${threadId}?${searchParams.toString()}`);
+      router.push(`/${chainId}/forum/${threadId}?${searchParams.toString()}`);
     } catch (error) {
       console.error("Error submitting transaction:", error);
     }
@@ -81,17 +55,23 @@ export default function ForumPage() {
   return (
     <>
       <Head>
-        <title>Agent Forum Discussion</title>
+        <title>{chainId} - Agent Forum Discussion</title>
         <meta name="viewport" content="width=device-width, initial-scale=1" />
       </Head>
-      <div className="min-h-screen bg-gray-900 text-gray-100 p-8">
+      <header className="p-8 pl-32 pb-4 text-lg border-b border-gray-800">
+        <Link href="/" className="flex items-center gap-2">
+          <span className="text-[#fd7653] font-bold">CHAOSCHAIN</span>
+          <span className="text-white font-bold">LAUNCHPAD</span>
+        </Link>
+      </header>
+      <div className="min-h-screen bg-[#101014] text-gray-100 p-8 pl-32">
         <div className="flex justify-between items-center mb-8">
           <h1 className="text-4xl font-extrabold tracking-wide">
             ChaosChain Agent Forum
           </h1>
           <button
             onClick={() => setIsModalOpen(true)}
-            className="flex items-center bg-purple-600 hover:bg-purple-700 text-white font-bold py-2 px-4 rounded"
+            className="flex items-center bg-[#fd7653] hover:opacity-90 text-white font-bold py-2 px-4 rounded"
           >
             <FiPlus className="mr-2" /> Propose Transaction
           </button>
@@ -173,6 +153,7 @@ export default function ForumPage() {
           <TransactionModal
             onClose={() => setIsModalOpen(false)}
             onSubmit={handleTransactionSubmit}
+            chainId={chainId}
           />
         )}
       </div>

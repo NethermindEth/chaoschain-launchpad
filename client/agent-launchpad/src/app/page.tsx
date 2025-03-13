@@ -1,43 +1,63 @@
 "use client";
 
-import { DotLottieReact } from '@lottiefiles/dotlottie-react';
-import type { NextPage } from 'next';
-import Head from 'next/head';
-import Link from 'next/link';
-import Script from 'next/script';
+import Link from "next/link";
 
-const Home: NextPage = () => {
+export default function Home() {
   return (
-    <>
-      <Head>
-        <title>ChaosChain Agent Launchpad</title>
-        <meta name="viewport" content="width=device-width, initial-scale=1" />
-      </Head>
-
-      <div className="min-h-screen flex flex-col items-center justify-center bg-gray-900 text-gray-100">
-        <div className="text-center max-w-2xl px-4">
-          <div className="mb-8">
-            <DotLottieReact
-              src="https://lottie.host/2ef09040-85b6-451f-81f8-fb1fe89b0f2f/mb6mvUSTGA.lottie"
-              loop
-              autoplay
-            />
-          </div>
-          <h1 className="text-4xl font-extrabold mb-4">CHAOSCHAIN AGENT LAUNCHPAD</h1>
-          <p className="text-base mb-6">
-            Explore the future of blockchain by effortlessly creating, configuring, and launching agents.
-            Experience real-time consensus and decentralized interactions.
-          </p>
-          <Link
-            href="/agents"
-            className="inline-block bg-gradient-to-r from-purple-700 to-purple-900 hover:opacity-90 text-gray-100 font-medium py-3 px-6 rounded-lg transition-all duration-300"
-          >
-            LET'S GET STARTED
+    <div className="w-full h-screen flex">
+      {/* Left Column - Content */}
+      <div className="w-full md:w-full bg-gray-950 flex flex-col h-full">
+        <header className="p-8 pl-32 text-lg">
+          <Link href="/" className="flex items-center gap-2">
+            <span className="text-[#fd7653] font-bold">CHAOSCHAIN</span>
+            <span className="text-white font-bold">LAUNCHPAD</span>
           </Link>
+        </header>
+
+        <div className="px-32 p-8 flex flex-grow items-center">
+          <div className="w-full flex flex-col">
+            {/* Description */}
+            <div className="mb-8 text-gray-100">
+              <h1 className="text-6xl font-bold mb-4">
+                Redefining Governance in Blockchain
+              </h1>
+              <p className="text-gray-300">
+                Explore a new frontier where AI meets decentralization. Create
+                your own chain or collaborate with others as AI agents shape the
+                evolution of governance.
+              </p>
+            </div>
+
+            {/* Buttons */}
+            <div className="flex flex-col gap-4">
+              <Link href="/chain">
+                <button className="w-full border-1 border-[#fd7653] bg-transparent text-[#fd7653] font-medium font-semibold px-8 py-3 rounded-2xl hover:shadow-lg shadow-md transition-all duration-300 transform hover:-translate-y-0.5 font-medium px-8 py-3 rounded-2xl hover:shadow-lg shadow-md transition-all duration-300 transform hover:-translate-y-0.5">
+                  Start a new genesis block / Join an existing chain
+                </button>
+              </Link>
+              {/* <Link href="/agents">
+                <button className="w-full border-1 border-[#fd7653] bg-transparent text-[#fd7653] font-medium font-semibold px-8 py-3 rounded-2xl hover:shadow-lg shadow-md transition-all duration-300 transform hover:-translate-y-0.5">
+                  Agent Launchpad
+                </button>
+              </Link> */}
+              <Link href="/agents">
+                <button className="w-full bg-gradient-to-r from-[#fd7653] to-[#feb082] text-white font-medium font-semibold px-8 py-3 rounded-2xl hover:shadow-lg shadow-md transition-all duration-300 transform hover:-translate-y-0.5">
+                  Launch Chaos
+                </button>
+              </Link>
+            </div>
+          </div>
         </div>
       </div>
-    </>
-  );
-};
 
-export default Home;
+      {/* Left Column - Background Image */}
+      <div className="w-full md:w-9/10 h-screen relative">
+        <img
+          src="/background_eth.png"
+          alt="Chaoschain Logo"
+          className="w-full h-full object-cover"
+        />
+      </div>
+    </div>
+  );
+}

@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { registerAgent, ApiError } from "@/services/api";
+import { useState, useEffect } from "react";
+import { registerAgent, fetchValidators, ApiError } from "@/services/api";
 
 // Shared Agent interface
 export interface Agent {
@@ -12,17 +12,42 @@ export interface Agent {
   mood: string;
 }
 
-export function useAgentsManager() {
+export function useAgentsManager(chainId: string) {
   const [agents, setAgents] = useState<Agent[]>([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Fetch existing agents when component mounts
+  useEffect(() => {
+    const loadExistingAgents = async () => {
+      try {
+        setIsLoading(true);
+        const validators = await fetchValidators(chainId);
+        setAgents(validators.map(v => ({
+          id: v.ID,
+          name: v.Name,
+          role: "validator",
+          traits: v.Traits,
+          style: v.Style,
+          influences: v.Influences,
+          mood: v.Mood
+        })));
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Failed to fetch agents');
+      } finally {
+        setIsLoading(false);
+      }
+    };
+    
+    loadExistingAgents();
+  }, [chainId]);
+
   const addAgent = async (agent: Agent) => {
     setIsLoading(true);
     setError(null);
     try {
-      const response = await registerAgent(agent);
+      const response = await registerAgent(agent, chainId);
       setAgents(prev => [...prev, { ...agent, id: response.agentID }]);
       return response;
     } catch (err) {
