@@ -93,7 +93,6 @@ func GetGlobalDAService() *DataAvailabilityService {
 // CloseGlobalDAService closes the global DataAvailabilityService instance
 func CloseGlobalDAService() {
 	if GlobalDAService != nil {
-		GlobalDAService.Close()
 		GlobalDAService = nil
 		log.Println("Global EigenDA service closed")
 	}
@@ -457,32 +456,3 @@ func (s *DataAvailabilityService) SetupSubscriptions(dataStoredHandler, dataRetr
 
 	return nil
 }
-
-// Close closes the messenger connection and client
-func (s *DataAvailabilityService) Close() {
-	// if s.messenger != nil {
-	// 	s.messenger.Close()
-	// }
-
-	// if s.client != nil {
-	// 	s.client.Close()
-	// }
-}
-
-// Example usage
-// func main() {
-// 	data := map[string]interface{}{"message": "Hello EigenDA with NATS!"}
-// 	dataID, err := storeDataInEigenDA(data)
-// 	if err != nil {
-// 		fmt.Println("Error storing data:", err)
-// 		return
-// 	}
-// 	fmt.Println("Stored Data ID:", dataID)
-
-// 	retrievedData, err := retrieveDataFromEigenDA(dataID)
-// 	if err != nil {
-// 		fmt.Println("Error retrieving data:", err)
-// 		return
-// 	}
-// 	fmt.Println("Retrieved Data:", retrievedData)
-// }

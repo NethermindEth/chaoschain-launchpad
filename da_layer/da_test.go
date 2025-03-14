@@ -27,7 +27,6 @@ func TestEigenDAIntegration(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create DA service: %v", err)
 	}
-	defer service.Close()
 
 	// Set up event tracking channels
 	dataStoredCh := make(chan string, 1)
@@ -130,14 +129,6 @@ func TestEigenDARetrieval(t *testing.T) {
 	// Print the retrieved data
 	fmt.Printf("Retrieved data: %+v\n", retrievedData)
 
-	// Verify that the data contains expected fields
-	// if _, ok := retrievedData["chainId"]; !ok {
-	// 	t.Errorf("Retrieved data missing 'chainId' field")
-	// }
-
-	// if _, ok := retrievedData["timestamp"]; !ok {
-	// 	t.Errorf("Retrieved data missing 'timestamp' field")
-	// }
 }
 
 // TestMain is used to set up any test dependencies
