@@ -27,15 +27,9 @@ import (
 )
 
 var (
-	lastUsedPort   = 8080
-	portMutex      sync.Mutex
-	eigenDAService *da.DataAvailabilityService
+	lastUsedPort = 8080
+	portMutex    sync.Mutex
 )
-
-// SetEigenDAService sets the EigenDA service instance
-func SetEigenDAService(service *da.DataAvailabilityService) {
-	eigenDAService = service
-}
 
 func findAvailablePort() int {
 	portMutex.Lock()
@@ -367,86 +361,87 @@ func ProposeBlock(c *gin.Context) {
 	// Set up a subscription to capture discussions for this block
 	mp := mempool.GetMempool(chainID)
 
-	// Create a broker for this block proposal
-	broker, err := core.NewNATSBroker("nats://localhost:4222")
-	if err != nil {
-		log.Printf("Error creating NATS broker: %v", err)
-	}
+	// // Create a broker for this block proposal
+	// broker, err := core.NewNATSBroker("nats://localhost:4222")
+	// if err != nil {
+	// 	log.Printf("Error creating NATS broker: %v", err)
+	// }
 
 	// We'll use this to track if we need to clean up the broker
-	var brokerCreated bool
-	if broker != nil {
-		brokerCreated = true
-		defer func() {
-			// Only close if we haven't already closed in the select statement
-			if brokerCreated {
-				broker.Close()
-			}
-		}()
-	}
+	// var brokerCreated bool
+	// if broker != nil {
+	// 	brokerCreated = true
+	// 	defer func() {
+	// 		// Only close if we haven't already closed in the select statement
+	// 		if brokerCreated {
+	// 			broker.Close()
+	// 		}
+	// 	}()
+	// }
 
 	if mp != nil {
 		// Subscribe to agent discussions via broker
-		if broker != nil {
-			err := broker.Subscribe("AGENT_DISCUSSION", func(m *nats.Msg) {
-				var discussion consensus.Discussion
-				if err := json.Unmarshal(m.Data, &discussion); err != nil {
-					log.Printf("Error unmarshalling discussion from NATS: %v", err)
-					return
-				}
-
-				// Store vote information in mempool for later storage in EigenDA
-				mp.EphemeralVotes = append(mp.EphemeralVotes, mempool.EphemeralVote{
-					AgentID:      discussion.ValidatorID,
-					VoteDecision: discussion.Type,
-					Timestamp:    discussion.Timestamp.Unix(),
-				})
-
-				// Store agent identity if not already stored
-				if _, exists := mp.EphemeralAgentIdentities[discussion.ValidatorID]; !exists {
-					// Get validator name if available
-					v := validator.GetValidatorByID(chainID, discussion.ValidatorID)
-					if v != nil {
-						mp.EphemeralAgentIdentities[discussion.ValidatorID] = v.Name
-					} else {
-						mp.EphemeralAgentIdentities[discussion.ValidatorID] = discussion.ValidatorID
-					}
-				}
-			})
-			if err != nil {
-				log.Printf("Error subscribing to AGENT_DISCUSSION: %v", err)
+		// if broker != nil {
+		_, err := core.NatsBrokerInstance.Subscribe("AGENT_DISCUSSION", func(m *nats.Msg) {
+			var discussion consensus.Discussion
+			if err := json.Unmarshal(m.Data, &discussion); err != nil {
+				log.Printf("Error unmarshalling discussion from NATS: %v", err)
+				return
 			}
 
-			// Also subscribe to final votes
-			err = broker.Subscribe("AGENT_VOTE", func(m *nats.Msg) {
-				var vote consensus.Discussion
-				if err := json.Unmarshal(m.Data, &vote); err != nil {
-					log.Printf("Error unmarshalling vote from NATS: %v", err)
-					return
-				}
-
-				// Store vote information in mempool for later storage in EigenDA
-				mp.EphemeralVotes = append(mp.EphemeralVotes, mempool.EphemeralVote{
-					AgentID:      vote.ValidatorID,
-					VoteDecision: vote.Type,
-					Timestamp:    vote.Timestamp.Unix(),
-				})
-
-				// Store agent identity if not already stored
-				if _, exists := mp.EphemeralAgentIdentities[vote.ValidatorID]; !exists {
-					// Get validator name if available
-					v := validator.GetValidatorByID(chainID, vote.ValidatorID)
-					if v != nil {
-						mp.EphemeralAgentIdentities[vote.ValidatorID] = v.Name
-					} else {
-						mp.EphemeralAgentIdentities[vote.ValidatorID] = vote.ValidatorID
-					}
-				}
+			// Store vote information in mempool for later storage in EigenDA
+			mp.EphemeralVotes = append(mp.EphemeralVotes, mempool.EphemeralVote{
+				ID:           discussion.ID,
+				AgentID:      discussion.ValidatorID,
+				VoteDecision: discussion.Type,
+				Timestamp:    discussion.Timestamp.Unix(),
 			})
-			if err != nil {
-				log.Printf("Error subscribing to AGENT_VOTE: %v", err)
+
+			// Store agent identity if not already stored
+			if _, exists := mp.EphemeralAgentIdentities[discussion.ValidatorID]; !exists {
+				// Get validator name if available
+				v := validator.GetValidatorByID(chainID, discussion.ValidatorID)
+				if v != nil {
+					mp.EphemeralAgentIdentities[discussion.ValidatorID] = v.Name
+				} else {
+					mp.EphemeralAgentIdentities[discussion.ValidatorID] = discussion.ValidatorID
+				}
 			}
+		})
+		if err != nil {
+			log.Printf("Error subscribing to AGENT_DISCUSSION: %v", err)
 		}
+
+		// Also subscribe to final votes
+		_, err = core.NatsBrokerInstance.Subscribe("AGENT_VOTE", func(m *nats.Msg) {
+			var vote consensus.Discussion
+			if err := json.Unmarshal(m.Data, &vote); err != nil {
+				log.Printf("Error unmarshalling vote from NATS: %v", err)
+				return
+			}
+
+			// Store vote information in mempool for later storage in EigenDA
+			mp.EphemeralVotes = append(mp.EphemeralVotes, mempool.EphemeralVote{
+				AgentID:      vote.ValidatorID,
+				VoteDecision: vote.Type,
+				Timestamp:    vote.Timestamp.Unix(),
+			})
+
+			// Store agent identity if not already stored
+			if _, exists := mp.EphemeralAgentIdentities[vote.ValidatorID]; !exists {
+				// Get validator name if available
+				v := validator.GetValidatorByID(chainID, vote.ValidatorID)
+				if v != nil {
+					mp.EphemeralAgentIdentities[vote.ValidatorID] = v.Name
+				} else {
+					mp.EphemeralAgentIdentities[vote.ValidatorID] = vote.ValidatorID
+				}
+			}
+		})
+		if err != nil {
+			log.Printf("Error subscribing to AGENT_VOTE: %v", err)
+		}
+		// }
 	}
 
 	cm := consensus.GetConsensusManager(chainID)
@@ -473,15 +468,11 @@ func ProposeBlock(c *gin.Context) {
 		2*time.Second // Safety margin
 
 	select {
+
 	case consensusResult := <-result:
-		// Close the broker to clean up subscriptions
-		if brokerCreated {
-			broker.Close()
-			brokerCreated = false
-		}
 
 		// Store offchain data to EigenDA and clear temporary mempool data
-		if mp := mempool.GetMempool(chainID); mp != nil && eigenDAService != nil {
+		if mp := mempool.GetMempool(chainID); mp != nil {
 			// Get discussions from consensus if available
 			var discussions []consensus.Discussion
 			activeConsensus := cm.GetActiveConsensus()
@@ -489,17 +480,8 @@ func ProposeBlock(c *gin.Context) {
 				discussions = activeConsensus.GetDiscussions()
 			}
 
-			// Convert consensus.Discussion to da.Discussion
-			daDiscussions := make([]da.Discussion, len(discussions))
-			for i, d := range discussions {
-				daDiscussions[i] = da.Discussion{
-					AgentID:   d.ValidatorID,
-					Message:   d.Message,
-					Timestamp: d.Timestamp.Unix(),
-				}
-			}
+			// No need to convert discussions since we're using the standardized struct directly
 
-			// Convert ephemeral votes to da.Vote type
 			votes := make([]da.Vote, len(mp.EphemeralVotes))
 			for i, ev := range mp.EphemeralVotes {
 				votes[i] = da.Vote{
@@ -511,7 +493,9 @@ func ProposeBlock(c *gin.Context) {
 
 			offchain := da.OffchainData{
 				ChainID:     chainID,
-				Discussions: daDiscussions,
+				BlockHash:   threadID,
+				BlockHeight: block.Height,
+				Discussions: discussions, // Using the discussions directly
 				Votes:       votes,
 				Outcome: func() string {
 					if consensusResult.State == consensus.Accepted {
@@ -519,15 +503,17 @@ func ProposeBlock(c *gin.Context) {
 					}
 					return "rejected"
 				}(),
-				AgentIdentities: mp.EphemeralAgentIdentities, // Taken directly from mempool
+				AgentIdentities: mp.EphemeralAgentIdentities,
+				Timestamp:       time.Now().Unix(),
 			}
-			if id, err := da.SaveOffchainData(eigenDAService, offchain); err != nil {
+			if id, err := da.SaveOffchainData(offchain); err != nil {
 				log.Printf("Error saving offchain data: %v", err)
 			} else {
 				log.Printf("Offchain data saved with id: %s", id)
 			}
 			mp.ClearTemporaryData()
 		}
+
 		c.JSON(http.StatusOK, gin.H{
 			"message":   "Consensus completed",
 			"block":     block,
@@ -538,10 +524,6 @@ func ProposeBlock(c *gin.Context) {
 		})
 	case <-time.After(totalTime):
 		// Close the broker to clean up subscriptions
-		if brokerCreated {
-			broker.Close()
-			brokerCreated = false
-		}
 
 		c.JSON(http.StatusGatewayTimeout, gin.H{
 			"error":     "Consensus timed out",
@@ -619,4 +601,109 @@ func ListChains(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"chains": chains,
 	})
+}
+
+// GetBlockDiscussions returns the discussions for a specific block by hash
+func GetBlockDiscussions(c *gin.Context) {
+	chainID := c.GetString("chainID")
+	blockHash := c.Param("blockHash")
+
+	// Get the blob reference for this block
+	ref, found := da.GetBlobReferenceByBlockHash(chainID, blockHash)
+	if !found {
+		c.JSON(http.StatusNotFound, gin.H{"error": "No discussions found for this block"})
+		return
+	}
+
+	// Retrieve the data from EigenDA
+	offchainData, err := da.GetOffchainData(ref.BlobID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to retrieve discussions: %v", err)})
+		return
+	}
+
+	// Format timestamps for better readability in the response
+	formattedDiscussions := make([]map[string]interface{}, len(offchainData.Discussions))
+	for i, d := range offchainData.Discussions {
+		formattedDiscussions[i] = map[string]interface{}{
+			"id":          d.ID,
+			"validatorId": d.ValidatorID,
+			"message":     d.Message,
+			"timestamp":   d.Timestamp.Format(time.RFC3339),
+			"type":        d.Type,
+			"round":       d.Round,
+		}
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"blockHash":   blockHash,
+		"blockHeight": ref.BlockHeight,
+		"discussions": formattedDiscussions,
+		"votes":       offchainData.Votes,
+		"outcome":     offchainData.Outcome,
+		"agents":      offchainData.AgentIdentities,
+		"timestamp":   time.Unix(offchainData.Timestamp, 0).Format(time.RFC3339),
+	})
+}
+
+// GetBlockDiscussionsByHeight returns the discussions for a specific block by height
+func GetBlockDiscussionsByHeight(c *gin.Context) {
+	chainID := c.GetString("chainID")
+	heightStr := c.Param("height")
+
+	height, err := strconv.Atoi(heightStr)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid block height"})
+		return
+	}
+
+	// Get the blob reference for this block
+	ref, found := da.GetBlobReferenceByHeight(chainID, height)
+	if !found {
+		c.JSON(http.StatusNotFound, gin.H{"error": "No discussions found for this block height"})
+		return
+	}
+
+	// Retrieve the data from EigenDA
+	offchainData, err := da.GetOffchainData(ref.BlobID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to retrieve discussions: %v", err)})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"blockHash":   ref.BlockHash,
+		"blockHeight": height,
+		"discussions": offchainData.Discussions,
+		"votes":       offchainData.Votes,
+		"outcome":     offchainData.Outcome,
+		"agents":      offchainData.AgentIdentities,
+		"timestamp":   offchainData.Timestamp,
+	})
+}
+
+// ListBlockDiscussions returns a list of all blocks with discussions for a chain
+func ListBlockDiscussions(c *gin.Context) {
+	chainID := c.GetString("chainID")
+
+	// Get all blob references for this chain
+	refs := da.GetBlobReferencesForChain(chainID)
+	if len(refs) == 0 {
+		c.JSON(http.StatusOK, gin.H{"blocks": []interface{}{}})
+		return
+	}
+
+	// Create a summary for each block
+	blocks := make([]map[string]interface{}, len(refs))
+	for i, ref := range refs {
+		blocks[i] = map[string]interface{}{
+			"blockHash":   ref.BlockHash,
+			"blockHeight": ref.BlockHeight,
+			"outcome":     ref.Outcome,
+			"timestamp":   ref.Timestamp,
+			"blobId":      ref.BlobID,
+		}
+	}
+
+	c.JSON(http.StatusOK, gin.H{"blocks": blocks})
 }

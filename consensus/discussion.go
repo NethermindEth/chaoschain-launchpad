@@ -10,6 +10,7 @@ import (
 	"github.com/NethermindEth/chaoschain-launchpad/communication"
 	"github.com/NethermindEth/chaoschain-launchpad/core"
 	"github.com/NethermindEth/chaoschain-launchpad/p2p"
+	"github.com/google/uuid"
 )
 
 // LLMResponse represents the expected structure of the response coming from the LLM.
@@ -21,6 +22,7 @@ type LLMResponse struct {
 
 // Discussion represents a discussion message from a validator.
 type Discussion struct {
+	ID          string    `json:"id"` // Unique identifier for the discussion
 	ValidatorID string    `json:"validatorId"`
 	Message     string    `json:"message"`
 	Timestamp   time.Time `json:"timestamp"`
@@ -44,7 +46,11 @@ func (bc *BlockConsensus) AddDiscussion(validatorID, message, discussionType str
 	bc.mu.Lock()
 	defer bc.mu.Unlock()
 
+	// Generate a unique ID for the discussion
+	discussionID := uuid.New().String()
+
 	discussion := Discussion{
+		ID:          discussionID,
 		ValidatorID: validatorID,
 		Message:     message,
 		Timestamp:   time.Now(),
@@ -151,17 +157,18 @@ func StartBlockDiscussion(validatorID string, block *core.Block, traits []string
 		var llmResult LLMResponse
 		if err := json.Unmarshal([]byte(response), &llmResult); err != nil {
 			fmt.Println("Error parsing LLM response:", err)
-		} else {
-			fmt.Println("Opinion:", llmResult.Opinion)
-			fmt.Println("Stance:", llmResult.Stance)
-			fmt.Println("Reason:", llmResult.Reason)
 		}
 
 		// Add to discussion
 		consensus.AddDiscussion(validatorID, llmResult.Opinion+" "+llmResult.Reason, llmResult.Stance, round)
 
+		// Get the last added discussion to access its ID
+		discussions := consensus.GetDiscussions()
+		lastDiscussion := discussions[len(discussions)-1]
+
 		// Broadcast via WebSocket
 		discussion := Discussion{
+			ID:          lastDiscussion.ID,
 			ValidatorID: validatorID,
 			Message:     llmResult.Opinion + " " + llmResult.Reason,
 			Type:        llmResult.Stance,
@@ -222,7 +229,12 @@ func StartBlockDiscussion(validatorID string, block *core.Block, traits []string
 	// Record final vote
 	consensus.AddDiscussion(validatorID, finalResponse, voteType, DiscussionRounds+1)
 
+	// Get the last added discussion to access its ID
+	discussions := consensus.GetDiscussions()
+	lastDiscussion := discussions[len(discussions)-1]
+
 	vote := Discussion{
+		ID:          lastDiscussion.ID,
 		ValidatorID: validatorID,
 		Message:     finalResponse,
 		Type:        voteType,

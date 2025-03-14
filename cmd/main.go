@@ -41,18 +41,12 @@ func main() {
 
 	// Initialize EigenDA service
 	log.Printf("Initializing EigenDA service with NATS URL: %s", *nats)
-	eigenDAService, err := da.NewDataAvailabilityService(*nats)
-	if err != nil {
+	if err := da.SetupGlobalDAService(*nats); err != nil {
 		log.Printf("Warning: Failed to initialize EigenDA service: %v", err)
 		// Continue without EigenDA service
 	} else {
 		log.Println("EigenDA service initialized successfully")
-		// Set up subscriptions for data events if needed
-		eigenDAService.SetupSubscriptions(
-			func(dataID string) { log.Printf("Data stored with ID: %s", dataID) },
-			func(dataID string) { log.Printf("Data retrieved with ID: %s", dataID) },
-		)
-		defer eigenDAService.Close()
+		defer da.CloseGlobalDAService()
 	}
 
 	// Register this node with the chain
