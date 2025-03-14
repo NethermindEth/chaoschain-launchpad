@@ -5,16 +5,16 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
-	"net/http"
+	"log"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/NethermindEth/chaoschain-launchpad/communication"
 	"github.com/nats-io/nats.go"
 
-	"github.com/Layr-Labs/eigenda/clients"
+	"github.com/Layr-Labs/eigenda/api/clients"
 	"github.com/Layr-Labs/eigenda/core/auth"
 	"github.com/Layr-Labs/eigenda/encoding/utils/codec"
 )
@@ -30,7 +30,7 @@ const (
 	// EigenDA configuration
 	EIGENDA_HOST            = "disperser-holesky.eigenda.xyz"
 	EIGENDA_PORT            = "443"
-	EIGENDA_REQUEST_TIMEOUT = 10 * time.Second
+	EIGENDA_REQUEST_TIMEOUT = 30 * time.Second
 	EIGENDA_POLL_INTERVAL   = 5 * time.Second
 	EIGENDA_MAX_WAIT_TIME   = 30 * time.Minute
 
@@ -39,6 +39,65 @@ const (
 	EIGENDA_STATUS_URL   = "https://disperser-holesky.eigenda.xyz:443/v1/blob/status"
 	EIGENDA_RETRIEVE_URL = "https://disperser-holesky.eigenda.xyz:443/v1/blob"
 )
+
+// Global instance of the DataAvailabilityService
+var (
+	GlobalDAService     *DataAvailabilityService
+	globalDAServiceOnce sync.Once
+	globalDAServiceErr  error
+)
+
+// SetupGlobalDAService initializes the global DataAvailabilityService instance
+func SetupGlobalDAService(natsURL string) error {
+	globalDAServiceOnce.Do(func() {
+		var service *DataAvailabilityService
+		service, globalDAServiceErr = NewDataAvailabilityService(natsURL)
+		if globalDAServiceErr != nil {
+			log.Printf("Failed to initialize global DA service: %v", globalDAServiceErr)
+			return
+		}
+
+		// Set up subscriptions for data events
+		globalDAServiceErr = service.SetupSubscriptions(
+			func(dataID string) { log.Printf("Data stored with ID: %s", dataID) },
+			func(dataID string) { log.Printf("Data retrieved with ID: %s", dataID) },
+		)
+		if globalDAServiceErr != nil {
+			log.Printf("Failed to set up DA service subscriptions: %v", globalDAServiceErr)
+			return
+		}
+
+		GlobalDAService = service
+		log.Println("Global EigenDA service initialized successfully")
+
+		// Initialize the master index
+		if err := InitializeMasterIndex(); err != nil {
+			log.Printf("Failed to initialize master index: %v", err)
+			globalDAServiceErr = err
+			return
+		}
+		log.Println("Master index initialized successfully")
+	})
+
+	return globalDAServiceErr
+}
+
+// GetGlobalDAService returns the global DataAvailabilityService instance
+func GetGlobalDAService() *DataAvailabilityService {
+	if GlobalDAService == nil {
+		log.Println("Warning: Global DA service not initialized")
+	}
+	return GlobalDAService
+}
+
+// CloseGlobalDAService closes the global DataAvailabilityService instance
+func CloseGlobalDAService() {
+	if GlobalDAService != nil {
+		GlobalDAService.Close()
+		GlobalDAService = nil
+		log.Println("Global EigenDA service closed")
+	}
+}
 
 // DataAvailabilityService handles interactions with EigenDA
 type DataAvailabilityService struct {
@@ -75,18 +134,21 @@ func NewDataAvailabilityService(natsURL string) (*DataAvailabilityService, error
 	}
 
 	// Set up authentication with private key using decoded bytes
-	signer := auth.NewSigner("0x" + eigendaAuthKey)
+	signer := auth.NewLocalBlobRequestSigner("0x" + eigendaAuthKey)
 
 	// Configuration for the disperser client
-	config := clients.NewConfig(
-		EIGENDA_HOST,
-		EIGENDA_PORT,
-		EIGENDA_REQUEST_TIMEOUT,
-		true, // useSecureGrpcFlag, should be true for production
-	)
+	config := &clients.Config{
+		Hostname:          EIGENDA_HOST,
+		Port:              EIGENDA_PORT,
+		Timeout:           EIGENDA_REQUEST_TIMEOUT,
+		UseSecureGrpcFlag: true, // should be true for production
+	}
 
 	// Create the disperser client
-	client := clients.NewDisperserClient(config, signer)
+	client, err := clients.NewDisperserClient(config, signer)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create disperser client: %w", err)
+	}
 
 	service := &DataAvailabilityService{
 		messenger: messenger,
@@ -126,21 +188,30 @@ func (s *DataAvailabilityService) StoreData(data map[string]interface{}) (string
 	// Encode data to be compatible with bn254 field element constraints
 	encodedData := codec.ConvertByPaddingEmptyByte(jsonData)
 
-	// Context with timeout
-	ctx, cancel := context.WithTimeout(context.Background(), EIGENDA_REQUEST_TIMEOUT)
-	defer cancel()
+	// Add retry logic for dispersing the blob
+	var dataID string
+	err = retry(3, 2*time.Second, func() error {
+		// Context with timeout
+		ctx, cancel := context.WithTimeout(context.Background(), EIGENDA_REQUEST_TIMEOUT)
+		defer cancel()
 
-	// Custom quorums (none for now, means we're dispersing to the default quorums)
-	quorums := []uint8{}
+		// Custom quorums (none for now, means we're dispersing to the default quorums)
+		quorums := []uint8{}
 
-	// Disperse the blob
-	_, requestID, err := s.client.DisperseBlob(ctx, encodedData, quorums)
+		// Disperse the blob
+		_, requestID, err := s.client.DisperseBlob(ctx, encodedData, quorums)
+		if err != nil {
+			return fmt.Errorf("error dispersing blob: %w", err)
+		}
+
+		// Convert requestID to string for use as dataID
+		dataID = string(requestID)
+		return nil
+	})
+
 	if err != nil {
-		return "", fmt.Errorf("error dispersing blob: %w", err)
+		return "", err
 	}
-
-	// Convert requestID to string for use as dataID
-	dataID := string(requestID)
 
 	// Wait for blob to be confirmed or finalized
 	status, err := s.waitForBlobStatus(dataID)
@@ -156,6 +227,25 @@ func (s *DataAvailabilityService) StoreData(data map[string]interface{}) (string
 	}
 
 	return dataID, nil
+}
+
+// Helper function for retries
+func retry(attempts int, sleep time.Duration, f func() error) error {
+	var err error
+	for i := 0; i < attempts; i++ {
+		err = f()
+		if err == nil {
+			return nil
+		}
+
+		if i < attempts-1 {
+			log.Printf("Attempt %d failed: %v. Retrying in %v...", i+1, err, sleep)
+			time.Sleep(sleep)
+			// Exponential backoff
+			sleep = sleep * 2
+		}
+	}
+	return err
 }
 
 // waitForBlobStatus polls the blob status until it's finalized or failed
@@ -183,13 +273,12 @@ func (s *DataAvailabilityService) waitForBlobStatus(requestID string) (string, e
 
 			// Check if the status is done
 			status := statusReply.Status.String()
-
 			if status == "FINALIZED" {
 				fmt.Printf("Blob Status is finalized: %s\n", statusReply)
 				return "FINALIZED", nil
 			} else if status == "CONFIRMED" {
 				fmt.Printf("Blob Status is confirmed: %s\n", statusReply)
-				// return "CONFIRMED", nil
+				return "CONFIRMED", nil
 			} else if status == "FAILED" {
 				fmt.Printf("Blob Status is failed: %s\n", statusReply)
 				return "FAILED", fmt.Errorf("blob dispersal failed with status: %v", status)
@@ -204,66 +293,64 @@ func (s *DataAvailabilityService) waitForBlobStatus(requestID string) (string, e
 	}
 }
 
+// GetBlobStatus retrieves the current status of a blob from EigenDA
+func (s *DataAvailabilityService) GetBlobStatus(dataID string) (interface{}, error) {
+	if dataID == "" {
+		return nil, fmt.Errorf("dataID is required")
+	}
+
+	// Create a context with timeout
+	ctx, cancel := context.WithTimeout(context.Background(), EIGENDA_REQUEST_TIMEOUT)
+	defer cancel()
+
+	// Get the blob status using the client
+	statusReply, err := s.client.GetBlobStatus(ctx, []byte(dataID))
+	if err != nil {
+		return nil, fmt.Errorf("error getting blob status: %w", err)
+	}
+
+	return statusReply, nil
+}
+
 // RetrieveData retrieves data from EigenDA using dataID
 func (s *DataAvailabilityService) RetrieveData(dataID string) (map[string]interface{}, error) {
 	if dataID == "" {
 		return nil, fmt.Errorf("dataID is required")
 	}
 
-	// Retrieve the blob using HTTP since the client doesn't have a RetrieveBlob method
-	var result map[string]interface{}
-	retrieveURL := fmt.Sprintf("https://%s:%s/v1/blob/%s", EIGENDA_HOST, EIGENDA_PORT, dataID)
+	// Create a context with timeout for retrieval
+	ctx, cancel := context.WithTimeout(context.Background(), EIGENDA_REQUEST_TIMEOUT)
+	defer cancel()
 
-	req, err := http.NewRequest("GET", retrieveURL, nil)
+	// Retrieve the blob from the disperser
+	blobData, err := s.retrieveBlobFromDisperser(ctx, dataID)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create retrieve request: %w", err)
+		return nil, fmt.Errorf("failed to retrieve blob: %w", err)
 	}
 
-	client := &http.Client{Timeout: EIGENDA_REQUEST_TIMEOUT}
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("failed to send retrieve request: %w", err)
-	}
-	defer resp.Body.Close()
+	// Remove null bytes padding from the data
+	decodedData := s.removeNullBytesPadding(blobData)
 
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("failed to retrieve data, status code: %d", resp.StatusCode)
-	}
+	// Log the retrieved data for debugging
+	log.Printf("Retrieved data (length: %d): %s", len(decodedData), string(decodedData))
 
-	body, err := ioutil.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read retrieve response: %w", err)
-	}
-
-	var response map[string]interface{}
-	if err := json.Unmarshal(body, &response); err != nil {
-		return nil, fmt.Errorf("failed to parse retrieve response: %w", err)
-	}
-
-	// Extract and decode the data
-	encodedData, ok := response["data"].([]byte)
-	if !ok {
-		// Try to get it as a string and convert
-		if dataStr, ok := response["data"].(string); ok {
-			encodedData = []byte(dataStr)
-		} else {
-			return nil, fmt.Errorf("failed to get data from response")
-		}
-	}
-
-	// Since we can't find the exact function to remove padding, we'll handle it manually
-	// This is a simple implementation to remove the empty byte padding
-	var decodedData []byte
-	for i := 0; i < len(encodedData); i++ {
-		if i < len(encodedData)-1 && encodedData[i] == 0 && encodedData[i+1] == 0 {
-			break
-		}
-		decodedData = append(decodedData, encodedData[i])
+	// Check if data is empty
+	if len(decodedData) == 0 {
+		return nil, fmt.Errorf("retrieved data is empty after removing null bytes")
 	}
 
 	// Unmarshal the JSON data
+	var result map[string]interface{}
 	if err := json.Unmarshal(decodedData, &result); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal retrieved data: %w", err)
+		// Try to decode using codec if standard unmarshal fails
+		decodedBytes := codec.RemoveEmptyByteFromPaddedBytes(blobData)
+		if len(decodedBytes) > 0 {
+			if err := json.Unmarshal(decodedBytes, &result); err != nil {
+				return nil, fmt.Errorf("failed to unmarshal retrieved data: %w", err)
+			}
+		} else {
+			return nil, fmt.Errorf("failed to unmarshal retrieved data: %w", err)
+		}
 	}
 
 	// Publish event that data was retrieved
@@ -271,6 +358,63 @@ func (s *DataAvailabilityService) RetrieveData(dataID string) (map[string]interf
 	s.messenger.PublishGlobal(SUBJECT_DATA_RETRIEVED, retrieveMsg)
 
 	return result, nil
+}
+
+// retrieveBlobFromDisperser retrieves a blob from EigenDA using the disperser client
+func (s *DataAvailabilityService) retrieveBlobFromDisperser(ctx context.Context, dataID string) ([]byte, error) {
+	// First, get the blob status to get the batch information needed for retrieval
+	statusReply, err := s.client.GetBlobStatus(ctx, []byte(dataID))
+	if err != nil {
+		return nil, fmt.Errorf("failed to get blob status for retrieval: %w", err)
+	}
+
+	// Check if we have the necessary information for retrieval
+	if statusReply.Info == nil || statusReply.Info.BlobVerificationProof == nil {
+		return nil, fmt.Errorf("blob status doesn't contain verification proof needed for retrieval")
+	}
+
+	// Extract the required parameters from the status reply
+	batchHeaderHash := statusReply.Info.BlobVerificationProof.BatchMetadata.BatchHeaderHash
+	blobIndex := statusReply.Info.BlobVerificationProof.BlobIndex
+
+	// Log the retrieval parameters for debugging
+	log.Printf("Retrieving blob with batch header hash: %x, blob index: %d",
+		batchHeaderHash, blobIndex)
+
+	// Use the client's RetrieveBlob method with the correct parameters
+	data, err := s.client.RetrieveBlob(ctx, batchHeaderHash, uint32(blobIndex))
+	if err != nil {
+		return nil, fmt.Errorf("failed to retrieve blob: %w", err)
+	}
+
+	return data, nil
+}
+
+// removeNullBytesPadding removes null bytes padding from the end of the data
+func (s *DataAvailabilityService) removeNullBytesPadding(data []byte) []byte {
+	// Find the first non-null byte from the beginning
+	var startPos int
+	for startPos = 0; startPos < len(data); startPos++ {
+		if data[startPos] != 0 {
+			break
+		}
+	}
+
+	// Find the last non-null byte from the end
+	var endPos int
+	for endPos = len(data) - 1; endPos >= 0; endPos-- {
+		if data[endPos] != 0 {
+			break
+		}
+	}
+
+	// If the data is all null bytes, return empty
+	if startPos > endPos {
+		return []byte{}
+	}
+
+	// Return the data between the first and last non-null bytes
+	return data[startPos : endPos+1]
 }
 
 // SetupSubscriptions sets up NATS subscriptions for DA events
@@ -314,9 +458,15 @@ func (s *DataAvailabilityService) SetupSubscriptions(dataStoredHandler, dataRetr
 	return nil
 }
 
-// Close closes the messenger connection
+// Close closes the messenger connection and client
 func (s *DataAvailabilityService) Close() {
-	// Any cleanup needed
+	// if s.messenger != nil {
+	// 	s.messenger.Close()
+	// }
+
+	// if s.client != nil {
+	// 	s.client.Close()
+	// }
 }
 
 // Example usage
