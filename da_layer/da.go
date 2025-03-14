@@ -2,8 +2,8 @@ package da
 
 import (
 	"context"
-	"encoding/json"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"io/ioutil"
 	"net/http"
@@ -21,23 +21,23 @@ import (
 
 const (
 	// Updated EigenDA URLs for Holesky
-	MAX_RETRIES       = 3
-	
+	MAX_RETRIES = 3
+
 	// NATS subjects
-	SUBJECT_DATA_STORED = "data.stored"
+	SUBJECT_DATA_STORED    = "data.stored"
 	SUBJECT_DATA_RETRIEVED = "data.retrieved"
-	
+
 	// EigenDA configuration
 	EIGENDA_HOST            = "disperser-holesky.eigenda.xyz"
 	EIGENDA_PORT            = "443"
 	EIGENDA_REQUEST_TIMEOUT = 10 * time.Second
 	EIGENDA_POLL_INTERVAL   = 5 * time.Second
 	EIGENDA_MAX_WAIT_TIME   = 30 * time.Minute
-	
+
 	// EigenDA API endpoints
-	EIGENDA_DISPERSE_URL    = "https://disperser-holesky.eigenda.xyz:443/v1/blob"
-	EIGENDA_STATUS_URL      = "https://disperser-holesky.eigenda.xyz:443/v1/blob/status"
-	EIGENDA_RETRIEVE_URL    = "https://disperser-holesky.eigenda.xyz:443/v1/blob"
+	EIGENDA_DISPERSE_URL = "https://disperser-holesky.eigenda.xyz:443/v1/blob"
+	EIGENDA_STATUS_URL   = "https://disperser-holesky.eigenda.xyz:443/v1/blob/status"
+	EIGENDA_RETRIEVE_URL = "https://disperser-holesky.eigenda.xyz:443/v1/blob"
 )
 
 // DataAvailabilityService handles interactions with EigenDA
@@ -92,7 +92,7 @@ func NewDataAvailabilityService(natsURL string) (*DataAvailabilityService, error
 		messenger: messenger,
 		client:    client,
 	}
-	
+
 	return service, nil
 }
 
@@ -149,7 +149,7 @@ func (s *DataAvailabilityService) StoreData(data map[string]interface{}) (string
 	}
 
 	// Publish event using the messenger
-	message := fmt.Sprintf(`{"dataID":"%s","status":"%s","timestamp":%d}`, 
+	message := fmt.Sprintf(`{"dataID":"%s","status":"%s","timestamp":%d}`,
 		dataID, status, time.Now().Unix())
 	if err := s.messenger.PublishGlobal(SUBJECT_DATA_STORED, message); err != nil {
 		return dataID, fmt.Errorf("data stored but failed to publish event: %w", err)
@@ -172,29 +172,32 @@ func (s *DataAvailabilityService) waitForBlobStatus(requestID string) (string, e
 		case <-ticker.C:
 			// Create a new context for each status request
 			statusCtx, statusCancel := context.WithTimeout(statusOverallCtx, EIGENDA_REQUEST_TIMEOUT)
-			
+
 			// Get the blob status
 			statusReply, err := s.client.GetBlobStatus(statusCtx, []byte(requestID))
 			statusCancel()
-			
+
 			if err != nil {
 				return "ERROR", fmt.Errorf("error getting blob status: %w", err)
 			}
 
 			// Check if the status is done
 			status := statusReply.Status.String()
-			
+
 			if status == "FINALIZED" {
+				fmt.Printf("Blob Status is finalized: %s\n", statusReply)
 				return "FINALIZED", nil
 			} else if status == "CONFIRMED" {
-				return "CONFIRMED", nil
+				fmt.Printf("Blob Status is confirmed: %s\n", statusReply)
+				// return "CONFIRMED", nil
 			} else if status == "FAILED" {
+				fmt.Printf("Blob Status is failed: %s\n", statusReply)
 				return "FAILED", fmt.Errorf("blob dispersal failed with status: %v", status)
 			}
-			
+
 			// Continue polling for other statuses
 			fmt.Printf("Current Blob Status: %s\n", status)
-			
+
 		case <-statusOverallCtx.Done():
 			return "TIMEOUT", fmt.Errorf("timed out waiting for blob to finalize")
 		}
@@ -210,33 +213,33 @@ func (s *DataAvailabilityService) RetrieveData(dataID string) (map[string]interf
 	// Retrieve the blob using HTTP since the client doesn't have a RetrieveBlob method
 	var result map[string]interface{}
 	retrieveURL := fmt.Sprintf("https://%s:%s/v1/blob/%s", EIGENDA_HOST, EIGENDA_PORT, dataID)
-	
+
 	req, err := http.NewRequest("GET", retrieveURL, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create retrieve request: %w", err)
 	}
-	
+
 	client := &http.Client{Timeout: EIGENDA_REQUEST_TIMEOUT}
 	resp, err := client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to send retrieve request: %w", err)
 	}
 	defer resp.Body.Close()
-	
+
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("failed to retrieve data, status code: %d", resp.StatusCode)
 	}
-	
+
 	body, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read retrieve response: %w", err)
 	}
-	
+
 	var response map[string]interface{}
 	if err := json.Unmarshal(body, &response); err != nil {
 		return nil, fmt.Errorf("failed to parse retrieve response: %w", err)
 	}
-	
+
 	// Extract and decode the data
 	encodedData, ok := response["data"].([]byte)
 	if !ok {
@@ -247,7 +250,7 @@ func (s *DataAvailabilityService) RetrieveData(dataID string) (map[string]interf
 			return nil, fmt.Errorf("failed to get data from response")
 		}
 	}
-	
+
 	// Since we can't find the exact function to remove padding, we'll handle it manually
 	// This is a simple implementation to remove the empty byte padding
 	var decodedData []byte
@@ -257,16 +260,16 @@ func (s *DataAvailabilityService) RetrieveData(dataID string) (map[string]interf
 		}
 		decodedData = append(decodedData, encodedData[i])
 	}
-	
+
 	// Unmarshal the JSON data
 	if err := json.Unmarshal(decodedData, &result); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal retrieved data: %w", err)
 	}
-	
+
 	// Publish event that data was retrieved
 	retrieveMsg := fmt.Sprintf(`{"dataID":"%s","timestamp":%d}`, dataID, time.Now().Unix())
 	s.messenger.PublishGlobal(SUBJECT_DATA_RETRIEVED, retrieveMsg)
-	
+
 	return result, nil
 }
 
@@ -280,7 +283,7 @@ func (s *DataAvailabilityService) SetupSubscriptions(dataStoredHandler, dataRetr
 				fmt.Printf("Error parsing data stored event: %v\n", err)
 				return
 			}
-			
+
 			if dataID, ok := data["dataID"].(string); ok {
 				dataStoredHandler(dataID)
 			}
@@ -289,7 +292,7 @@ func (s *DataAvailabilityService) SetupSubscriptions(dataStoredHandler, dataRetr
 			return fmt.Errorf("failed to subscribe to data stored events: %w", err)
 		}
 	}
-	
+
 	// Subscribe to data retrieved events
 	if dataRetrievedHandler != nil {
 		err := s.messenger.SubscribeGlobal(SUBJECT_DATA_RETRIEVED, func(msg *nats.Msg) {
@@ -298,7 +301,7 @@ func (s *DataAvailabilityService) SetupSubscriptions(dataStoredHandler, dataRetr
 				fmt.Printf("Error parsing data retrieved event: %v\n", err)
 				return
 			}
-			
+
 			if dataID, ok := data["dataID"].(string); ok {
 				dataRetrievedHandler(dataID)
 			}
@@ -307,7 +310,7 @@ func (s *DataAvailabilityService) SetupSubscriptions(dataStoredHandler, dataRetr
 			return fmt.Errorf("failed to subscribe to data retrieved events: %w", err)
 		}
 	}
-	
+
 	return nil
 }
 

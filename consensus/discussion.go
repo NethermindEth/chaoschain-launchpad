@@ -161,13 +161,24 @@ func StartBlockDiscussion(validatorID string, block *core.Block, traits []string
 		consensus.AddDiscussion(validatorID, llmResult.Opinion+" "+llmResult.Reason, llmResult.Stance, round)
 
 		// Broadcast via WebSocket
-		communication.BroadcastEvent(communication.EventAgentVote, Discussion{
+		discussion := Discussion{
 			ValidatorID: validatorID,
 			Message:     llmResult.Opinion + " " + llmResult.Reason,
 			Type:        llmResult.Stance,
 			Round:       round,
 			Timestamp:   time.Now(),
-		})
+		}
+
+		discussionData, err := json.Marshal(discussion)
+		if err != nil {
+			fmt.Println("Error marshalling discussion for NATS:", err)
+		} else {
+			if err := core.NatsBrokerInstance.Publish("AGENT_DISCUSSION", discussionData); err != nil {
+				fmt.Println("Error publishing discussion to NATS:", err)
+			}
+		}
+		// Also keep WebSocket broadcast for UI updates
+		communication.BroadcastEvent(communication.EventAgentVote, discussion)
 
 		// Wait for other validators to comment in this round
 		time.Sleep(RoundDuration)
@@ -211,12 +222,22 @@ func StartBlockDiscussion(validatorID string, block *core.Block, traits []string
 	// Record final vote
 	consensus.AddDiscussion(validatorID, finalResponse, voteType, DiscussionRounds+1)
 
-	// Broadcast via WebSocket
-	communication.BroadcastEvent(communication.EventAgentVote, Discussion{
+	vote := Discussion{
 		ValidatorID: validatorID,
 		Message:     finalResponse,
 		Type:        voteType,
 		Round:       DiscussionRounds + 1,
 		Timestamp:   time.Now(),
-	})
+	}
+
+	finalDiscussionData, err := json.Marshal(vote)
+	if err != nil {
+		fmt.Println("Error marshalling final vote for NATS:", err)
+	} else {
+		if err := core.NatsBrokerInstance.Publish("AGENT_VOTE", finalDiscussionData); err != nil {
+			fmt.Println("Error publishing final vote to NATS:", err)
+		}
+	}
+	// Also keep WebSocket broadcast for UI updates
+	communication.BroadcastEvent(communication.EventAgentVote, vote)
 }

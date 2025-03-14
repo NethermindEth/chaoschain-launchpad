@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
@@ -10,12 +11,14 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"github.com/nats-io/nats.go"
 
 	"github.com/NethermindEth/chaoschain-launchpad/ai"
 	"github.com/NethermindEth/chaoschain-launchpad/cmd/node"
 	"github.com/NethermindEth/chaoschain-launchpad/communication"
 	"github.com/NethermindEth/chaoschain-launchpad/consensus"
 	"github.com/NethermindEth/chaoschain-launchpad/core"
+	da "github.com/NethermindEth/chaoschain-launchpad/da_layer"
 	"github.com/NethermindEth/chaoschain-launchpad/mempool"
 	"github.com/NethermindEth/chaoschain-launchpad/p2p"
 	"github.com/NethermindEth/chaoschain-launchpad/producer"
@@ -24,9 +27,15 @@ import (
 )
 
 var (
-	lastUsedPort = 8080
-	portMutex    sync.Mutex
+	lastUsedPort   = 8080
+	portMutex      sync.Mutex
+	eigenDAService *da.DataAvailabilityService
 )
+
+// SetEigenDAService sets the EigenDA service instance
+func SetEigenDAService(service *da.DataAvailabilityService) {
+	eigenDAService = service
+}
 
 func findAvailablePort() int {
 	portMutex.Lock()
@@ -355,6 +364,91 @@ func ProposeBlock(c *gin.Context) {
 	title := fmt.Sprintf("Block Proposal %s", threadID)
 	communication.CreateThread(threadID, title, producerName)
 
+	// Set up a subscription to capture discussions for this block
+	mp := mempool.GetMempool(chainID)
+
+	// Create a broker for this block proposal
+	broker, err := core.NewNATSBroker("nats://localhost:4222")
+	if err != nil {
+		log.Printf("Error creating NATS broker: %v", err)
+	}
+
+	// We'll use this to track if we need to clean up the broker
+	var brokerCreated bool
+	if broker != nil {
+		brokerCreated = true
+		defer func() {
+			// Only close if we haven't already closed in the select statement
+			if brokerCreated {
+				broker.Close()
+			}
+		}()
+	}
+
+	if mp != nil {
+		// Subscribe to agent discussions via broker
+		if broker != nil {
+			err := broker.Subscribe("AGENT_DISCUSSION", func(m *nats.Msg) {
+				var discussion consensus.Discussion
+				if err := json.Unmarshal(m.Data, &discussion); err != nil {
+					log.Printf("Error unmarshalling discussion from NATS: %v", err)
+					return
+				}
+
+				// Store vote information in mempool for later storage in EigenDA
+				mp.EphemeralVotes = append(mp.EphemeralVotes, mempool.EphemeralVote{
+					AgentID:      discussion.ValidatorID,
+					VoteDecision: discussion.Type,
+					Timestamp:    discussion.Timestamp.Unix(),
+				})
+
+				// Store agent identity if not already stored
+				if _, exists := mp.EphemeralAgentIdentities[discussion.ValidatorID]; !exists {
+					// Get validator name if available
+					v := validator.GetValidatorByID(chainID, discussion.ValidatorID)
+					if v != nil {
+						mp.EphemeralAgentIdentities[discussion.ValidatorID] = v.Name
+					} else {
+						mp.EphemeralAgentIdentities[discussion.ValidatorID] = discussion.ValidatorID
+					}
+				}
+			})
+			if err != nil {
+				log.Printf("Error subscribing to AGENT_DISCUSSION: %v", err)
+			}
+
+			// Also subscribe to final votes
+			err = broker.Subscribe("AGENT_VOTE", func(m *nats.Msg) {
+				var vote consensus.Discussion
+				if err := json.Unmarshal(m.Data, &vote); err != nil {
+					log.Printf("Error unmarshalling vote from NATS: %v", err)
+					return
+				}
+
+				// Store vote information in mempool for later storage in EigenDA
+				mp.EphemeralVotes = append(mp.EphemeralVotes, mempool.EphemeralVote{
+					AgentID:      vote.ValidatorID,
+					VoteDecision: vote.Type,
+					Timestamp:    vote.Timestamp.Unix(),
+				})
+
+				// Store agent identity if not already stored
+				if _, exists := mp.EphemeralAgentIdentities[vote.ValidatorID]; !exists {
+					// Get validator name if available
+					v := validator.GetValidatorByID(chainID, vote.ValidatorID)
+					if v != nil {
+						mp.EphemeralAgentIdentities[vote.ValidatorID] = v.Name
+					} else {
+						mp.EphemeralAgentIdentities[vote.ValidatorID] = vote.ValidatorID
+					}
+				}
+			})
+			if err != nil {
+				log.Printf("Error subscribing to AGENT_VOTE: %v", err)
+			}
+		}
+	}
+
 	cm := consensus.GetConsensusManager(chainID)
 	if err := cm.ProposeBlock(block); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Failed to start consensus: " + err.Error()})
@@ -380,6 +474,60 @@ func ProposeBlock(c *gin.Context) {
 
 	select {
 	case consensusResult := <-result:
+		// Close the broker to clean up subscriptions
+		if brokerCreated {
+			broker.Close()
+			brokerCreated = false
+		}
+
+		// Store offchain data to EigenDA and clear temporary mempool data
+		if mp := mempool.GetMempool(chainID); mp != nil && eigenDAService != nil {
+			// Get discussions from consensus if available
+			var discussions []consensus.Discussion
+			activeConsensus := cm.GetActiveConsensus()
+			if activeConsensus != nil {
+				discussions = activeConsensus.GetDiscussions()
+			}
+
+			// Convert consensus.Discussion to da.Discussion
+			daDiscussions := make([]da.Discussion, len(discussions))
+			for i, d := range discussions {
+				daDiscussions[i] = da.Discussion{
+					AgentID:   d.ValidatorID,
+					Message:   d.Message,
+					Timestamp: d.Timestamp.Unix(),
+				}
+			}
+
+			// Convert ephemeral votes to da.Vote type
+			votes := make([]da.Vote, len(mp.EphemeralVotes))
+			for i, ev := range mp.EphemeralVotes {
+				votes[i] = da.Vote{
+					AgentID:      ev.AgentID,
+					VoteDecision: ev.VoteDecision,
+					Timestamp:    ev.Timestamp,
+				}
+			}
+
+			offchain := da.OffchainData{
+				ChainID:     chainID,
+				Discussions: daDiscussions,
+				Votes:       votes,
+				Outcome: func() string {
+					if consensusResult.State == consensus.Accepted {
+						return "accepted"
+					}
+					return "rejected"
+				}(),
+				AgentIdentities: mp.EphemeralAgentIdentities, // Taken directly from mempool
+			}
+			if id, err := da.SaveOffchainData(eigenDAService, offchain); err != nil {
+				log.Printf("Error saving offchain data: %v", err)
+			} else {
+				log.Printf("Offchain data saved with id: %s", id)
+			}
+			mp.ClearTemporaryData()
+		}
 		c.JSON(http.StatusOK, gin.H{
 			"message":   "Consensus completed",
 			"block":     block,
@@ -389,6 +537,12 @@ func ProposeBlock(c *gin.Context) {
 			"thread_id": threadID,
 		})
 	case <-time.After(totalTime):
+		// Close the broker to clean up subscriptions
+		if brokerCreated {
+			broker.Close()
+			brokerCreated = false
+		}
+
 		c.JSON(http.StatusGatewayTimeout, gin.H{
 			"error":     "Consensus timed out",
 			"block":     block,

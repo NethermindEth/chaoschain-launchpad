@@ -9,6 +9,7 @@ import (
 	"github.com/NethermindEth/chaoschain-launchpad/cmd/node"
 	_ "github.com/NethermindEth/chaoschain-launchpad/config" // Initialize config
 	"github.com/NethermindEth/chaoschain-launchpad/core"
+	da "github.com/NethermindEth/chaoschain-launchpad/da_layer"
 	"github.com/NethermindEth/chaoschain-launchpad/mempool"
 	"github.com/NethermindEth/chaoschain-launchpad/p2p"
 	"github.com/gin-gonic/gin"
@@ -37,6 +38,22 @@ func main() {
 
 	// Initialize chain-specific components
 	core.InitBlockchain(*chainID, mempool.GetMempool(*chainID))
+
+	// Initialize EigenDA service
+	log.Printf("Initializing EigenDA service with NATS URL: %s", *nats)
+	eigenDAService, err := da.NewDataAvailabilityService(*nats)
+	if err != nil {
+		log.Printf("Warning: Failed to initialize EigenDA service: %v", err)
+		// Continue without EigenDA service
+	} else {
+		log.Println("EigenDA service initialized successfully")
+		// Set up subscriptions for data events if needed
+		eigenDAService.SetupSubscriptions(
+			func(dataID string) { log.Printf("Data stored with ID: %s", dataID) },
+			func(dataID string) { log.Printf("Data retrieved with ID: %s", dataID) },
+		)
+		defer eigenDAService.Close()
+	}
 
 	// Register this node with the chain
 	chain := core.GetChain(*chainID)
