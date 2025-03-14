@@ -177,6 +177,10 @@ func StartBlockDiscussion(validatorID string, block *core.Block, traits []string
 		}
 
 		discussionData, err := json.Marshal(discussion)
+
+		// Also keep WebSocket broadcast for UI updates
+		communication.BroadcastEvent(communication.EventAgentVote, discussion)
+		
 		if err != nil {
 			fmt.Println("Error marshalling discussion for NATS:", err)
 		} else {
@@ -184,8 +188,6 @@ func StartBlockDiscussion(validatorID string, block *core.Block, traits []string
 				fmt.Println("Error publishing discussion to NATS:", err)
 			}
 		}
-		// Also keep WebSocket broadcast for UI updates
-		communication.BroadcastEvent(communication.EventAgentVote, discussion)
 
 		// Wait for other validators to comment in this round
 		time.Sleep(RoundDuration)
@@ -242,6 +244,9 @@ func StartBlockDiscussion(validatorID string, block *core.Block, traits []string
 		Timestamp:   time.Now(),
 	}
 
+	// Also keep WebSocket broadcast for UI updates
+	communication.BroadcastEvent(communication.EventAgentVote, vote)
+
 	finalDiscussionData, err := json.Marshal(vote)
 	if err != nil {
 		fmt.Println("Error marshalling final vote for NATS:", err)
@@ -250,6 +255,4 @@ func StartBlockDiscussion(validatorID string, block *core.Block, traits []string
 			fmt.Println("Error publishing final vote to NATS:", err)
 		}
 	}
-	// Also keep WebSocket broadcast for UI updates
-	communication.BroadcastEvent(communication.EventAgentVote, vote)
 }

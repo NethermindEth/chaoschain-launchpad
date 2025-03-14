@@ -114,7 +114,6 @@ func TestEigenDARetrieval(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create DA service: %v", err)
 	}
-	defer service.Close()
 
 	// Use a known dataID from a previous successful test
 	dataID := "fecf8d790c3a19d143a9fe87e5ca04e98f44a6bc189a5c94cfaf00007e81cc9d-313734313936343037323932383138393930312f302f33332f312f33332fe3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"

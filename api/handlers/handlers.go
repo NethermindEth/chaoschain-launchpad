@@ -27,8 +27,9 @@ import (
 )
 
 var (
-	lastUsedPort = 8080
-	portMutex    sync.Mutex
+	lastUsedPort         = 8080
+	portMutex            sync.Mutex
+	agentIdentitiesMutex sync.RWMutex
 )
 
 func findAvailablePort() int {
@@ -361,24 +362,6 @@ func ProposeBlock(c *gin.Context) {
 	// Set up a subscription to capture discussions for this block
 	mp := mempool.GetMempool(chainID)
 
-	// // Create a broker for this block proposal
-	// broker, err := core.NewNATSBroker("nats://localhost:4222")
-	// if err != nil {
-	// 	log.Printf("Error creating NATS broker: %v", err)
-	// }
-
-	// We'll use this to track if we need to clean up the broker
-	// var brokerCreated bool
-	// if broker != nil {
-	// 	brokerCreated = true
-	// 	defer func() {
-	// 		// Only close if we haven't already closed in the select statement
-	// 		if brokerCreated {
-	// 			broker.Close()
-	// 		}
-	// 	}()
-	// }
-
 	if mp != nil {
 		// Subscribe to agent discussions via broker
 		// if broker != nil {
@@ -398,6 +381,7 @@ func ProposeBlock(c *gin.Context) {
 			})
 
 			// Store agent identity if not already stored
+			agentIdentitiesMutex.Lock()
 			if _, exists := mp.EphemeralAgentIdentities[discussion.ValidatorID]; !exists {
 				// Get validator name if available
 				v := validator.GetValidatorByID(chainID, discussion.ValidatorID)
@@ -407,6 +391,7 @@ func ProposeBlock(c *gin.Context) {
 					mp.EphemeralAgentIdentities[discussion.ValidatorID] = discussion.ValidatorID
 				}
 			}
+			agentIdentitiesMutex.Unlock()
 		})
 		if err != nil {
 			log.Printf("Error subscribing to AGENT_DISCUSSION: %v", err)
@@ -428,6 +413,7 @@ func ProposeBlock(c *gin.Context) {
 			})
 
 			// Store agent identity if not already stored
+			agentIdentitiesMutex.Lock()
 			if _, exists := mp.EphemeralAgentIdentities[vote.ValidatorID]; !exists {
 				// Get validator name if available
 				v := validator.GetValidatorByID(chainID, vote.ValidatorID)
@@ -437,6 +423,7 @@ func ProposeBlock(c *gin.Context) {
 					mp.EphemeralAgentIdentities[vote.ValidatorID] = vote.ValidatorID
 				}
 			}
+			agentIdentitiesMutex.Unlock()
 		})
 		if err != nil {
 			log.Printf("Error subscribing to AGENT_VOTE: %v", err)
