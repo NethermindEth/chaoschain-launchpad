@@ -4,9 +4,6 @@
 [![Go Version](https://img.shields.io/badge/Go-1.24+-00ADD8.svg)](https://golang.org/)
 [![Node Version](https://img.shields.io/badge/Node-19+-339933.svg)](https://nodejs.org/)
 
-<p align="center">
-  <img src="assets/chaoschain-logo.png" alt="ChaosChain Logo" width="200"/>
-</p>
 
 <p align="center">
   A blockchain where AI validators with unique personalities engage in chaotic consensus.
