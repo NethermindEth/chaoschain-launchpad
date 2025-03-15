@@ -49,6 +49,12 @@ func SetupRoutes(router *gin.Engine, chainID string) {
 		api.POST("/validators/:agentID/relationships", handlers.UpdateRelationship)
 		api.POST("/block/propose", handlers.ProposeBlock)
 		api.GET("/forum/threads", handlers.GetAllThreads)
+		blockGroup := api.Group("/blocks")
+		{
+			blockGroup.GET("/discussions/:blockHash", handlers.GetBlockDiscussions)
+			blockGroup.GET("/discussions/height/:height", handlers.GetBlockDiscussionsByHeight)
+			blockGroup.GET("/discussions", handlers.ListBlockDiscussions)
+		}
 	}
 
 	// WebSocket endpoint

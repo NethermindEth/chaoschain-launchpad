@@ -4,40 +4,41 @@ import (
 	"fmt"
 
 	"github.com/nats-io/nats.go"
+	"github.com/NethermindEth/chaoschain-launchpad/core"
 )
 
-// Messenger encapsulates a NATS connection.
+// Messenger encapsulates a NATS broker connection.
 type Messenger struct {
-	NC *nats.Conn
+	broker *core.NATSBroker
 }
 
 // NewMessenger creates a new instance of Messenger.
 func NewMessenger(url string) (*Messenger, error) {
-	nc, err := nats.Connect(url)
+	broker, err := core.NewNATSBroker(url)
 	if err != nil {
 		return nil, err
 	}
-	return &Messenger{NC: nc}, nil
+	return &Messenger{broker: broker}, nil
 }
 
 // PublishGlobal publishes a message to a global subject (for public announcements).
 func (m *Messenger) PublishGlobal(subject, message string) error {
-	return m.NC.Publish(subject, []byte(message))
+	return m.broker.Publish(subject, []byte(message))
 }
 
 // PublishPrivate sends a message directly to a specific agent by using a private subject.
 func (m *Messenger) PublishPrivate(agentID, message string) error {
 	subject := fmt.Sprintf("agent.%s.private", agentID)
-	return m.NC.Publish(subject, []byte(message))
+	return m.broker.Publish(subject, []byte(message))
 }
 
 // SubscribeGlobal subscribes to a global topic.
-func (m *Messenger) SubscribeGlobal(subject string, handler nats.MsgHandler) (*nats.Subscription, error) {
-	return m.NC.Subscribe(subject, handler)
+func (m *Messenger) SubscribeGlobal(subject string, handler nats.MsgHandler) error {
+	return m.broker.Subscribe(subject, handler)
 }
 
 // SubscribePrivate subscribes to private messages for an agent.
-func (m *Messenger) SubscribePrivate(agentID string, handler nats.MsgHandler) (*nats.Subscription, error) {
+func (m *Messenger) SubscribePrivate(agentID string, handler nats.MsgHandler) error {
 	subject := fmt.Sprintf("agent.%s.private", agentID)
-	return m.NC.Subscribe(subject, handler)
+	return m.broker.Subscribe(subject, handler)
 }
