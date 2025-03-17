@@ -337,7 +337,7 @@ func UpdateRelationship(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": "Relationship updated successfully"})
 }
 
-// Add a function to get the RocksDB instance for a chain
+// Add a function to get the badgerDB instance for a chain
 func getDBForChain(chainID string) *storage.DBStorage {
 	db, err := storage.GetDBStorage("./data", chainID)
 	if err != nil {
@@ -352,7 +352,7 @@ func ProposeBlock(c *gin.Context) {
 	chainID := c.GetString("chainID")
 	waitForConsensus := c.DefaultQuery("wait", "false") == "true"
 
-	// Get RocksDB instance for this chain
+	// Get badgerDB instance for this chain
 	db := getDBForChain(chainID)
 
 	bc := core.GetChain(chainID)
@@ -395,11 +395,11 @@ func ProposeBlock(c *gin.Context) {
 			}
 			mp.EphemeralVotes = append(mp.EphemeralVotes, ephemeralVote)
 
-			// Also persist to RocksDB
+			// Also persist to badgerDB
 			if db != nil {
 				voteKey := fmt.Sprintf("vote:%s:%s", chainID, discussion.ID)
 				if err := db.PutObject(voteKey, ephemeralVote); err != nil {
-					log.Printf("Failed to save vote to RocksDB: %v", err)
+					log.Printf("Failed to save vote to badgerDB: %v", err)
 				}
 			}
 
@@ -417,11 +417,11 @@ func ProposeBlock(c *gin.Context) {
 					mp.EphemeralAgentIdentities[discussion.ValidatorID] = discussion.ValidatorID
 				}
 
-				// Also persist to RocksDB
+				// Also persist to badgerDB
 				if db != nil {
 					agentKey := fmt.Sprintf("agent:%s:%s", chainID, discussion.ValidatorID)
 					if err := db.Put(agentKey, []byte(agentName)); err != nil {
-						log.Printf("Failed to save agent identity to RocksDB: %v", err)
+						log.Printf("Failed to save agent identity to badgerDB: %v", err)
 					}
 				}
 			}
@@ -447,11 +447,11 @@ func ProposeBlock(c *gin.Context) {
 			}
 			mp.EphemeralVotes = append(mp.EphemeralVotes, ephemeralVote)
 
-			// Also persist to RocksDB
+			// Also persist to badgerDB
 			if db != nil {
 				voteKey := fmt.Sprintf("vote:%s:%s", chainID, vote.ID)
 				if err := db.PutObject(voteKey, ephemeralVote); err != nil {
-					log.Printf("Failed to save vote to RocksDB: %v", err)
+					log.Printf("Failed to save vote to badgerDB: %v", err)
 				}
 			}
 
@@ -469,11 +469,11 @@ func ProposeBlock(c *gin.Context) {
 					mp.EphemeralAgentIdentities[vote.ValidatorID] = vote.ValidatorID
 				}
 
-				// Also persist to RocksDB
+				// Also persist to badgerDB
 				if db != nil {
 					agentKey := fmt.Sprintf("agent:%s:%s", chainID, vote.ValidatorID)
 					if err := db.Put(agentKey, []byte(agentName)); err != nil {
-						log.Printf("Failed to save agent identity to RocksDB: %v", err)
+						log.Printf("Failed to save agent identity to badgerDB: %v", err)
 					}
 				}
 			}
@@ -549,7 +549,7 @@ func ProposeBlock(c *gin.Context) {
 			} else {
 				log.Printf("Offchain data saved with id: %s", id)
 
-				// Also save the blob reference to RocksDB
+				// Also save the blob reference to badgerDB
 				if db != nil {
 					blobRefKey := fmt.Sprintf("blobref:%s:%s", chainID, threadID)
 					blobRef := struct {
@@ -564,7 +564,7 @@ func ProposeBlock(c *gin.Context) {
 						Timestamp:   time.Now().Unix(),
 					}
 					if err := db.PutObject(blobRefKey, blobRef); err != nil {
-						log.Printf("Failed to save blob reference to RocksDB: %v", err)
+						log.Printf("Failed to save blob reference to badgerDB: %v", err)
 					}
 				}
 			}
@@ -572,7 +572,7 @@ func ProposeBlock(c *gin.Context) {
 			// Clear temporary data from mempool
 			mp.ClearTemporaryData()
 
-			// Also clear temporary data from RocksDB
+			// Also clear temporary data from badgerDB
 			if db != nil {
 				prefixes := []string{
 					fmt.Sprintf("vote:%s:", chainID),
@@ -580,7 +580,7 @@ func ProposeBlock(c *gin.Context) {
 				}
 				for _, prefix := range prefixes {
 					if err := db.DeleteByPrefix(prefix); err != nil {
-						log.Printf("Failed to clear data with prefix %s from RocksDB: %v", prefix, err)
+						log.Printf("Failed to clear data with prefix %s from badgerDB: %v", prefix, err)
 					}
 				}
 			}
@@ -680,7 +680,7 @@ func GetBlockDiscussions(c *gin.Context) {
 	chainID := c.GetString("chainID")
 	blockHash := c.Param("blockHash")
 
-	// Try to get the blob reference from RocksDB first
+	// Try to get the blob reference from badgerDB first
 	db := getDBForChain(chainID)
 	if db != nil {
 		blobRefKey := fmt.Sprintf("blobref:%s:%s", chainID, blockHash)
@@ -692,7 +692,7 @@ func GetBlockDiscussions(c *gin.Context) {
 		}
 
 		if err := db.GetObject(blobRefKey, &blobRef); err == nil {
-			// Found in RocksDB, retrieve from EigenDA
+			// Found in badgerDB, retrieve from EigenDA
 			offchainData, err := da.GetOffchainData(blobRef.BlobID)
 			if err == nil {
 				// Format timestamps for better readability in the response
@@ -722,7 +722,7 @@ func GetBlockDiscussions(c *gin.Context) {
 		}
 	}
 
-	// Fall back to the original method if not found in RocksDB
+	// Fall back to the original method if not found in badgerDB
 	ref, found := da.GetBlobReferenceByBlockHash(chainID, blockHash)
 	if !found {
 		c.JSON(http.StatusNotFound, gin.H{"error": "No discussions found for this block"})
@@ -771,7 +771,7 @@ func GetBlockDiscussionsByHeight(c *gin.Context) {
 		return
 	}
 
-	// Try to get the blob reference from RocksDB first
+	// Try to get the blob reference from badgerDB first
 	db := getDBForChain(chainID)
 	if db != nil {
 		// Get all blob references and find the one with matching height
@@ -787,7 +787,7 @@ func GetBlockDiscussionsByHeight(c *gin.Context) {
 
 				if err := json.Unmarshal(data, &blobRef); err == nil {
 					if blobRef.BlockHeight == height {
-						// Found in RocksDB, retrieve from EigenDA
+						// Found in badgerDB, retrieve from EigenDA
 						offchainData, err := da.GetOffchainData(blobRef.BlobID)
 						if err == nil {
 							c.JSON(http.StatusOK, gin.H{
@@ -807,7 +807,7 @@ func GetBlockDiscussionsByHeight(c *gin.Context) {
 		}
 	}
 
-	// Fall back to the original method if not found in RocksDB
+	// Fall back to the original method if not found in badgerDB
 	ref, found := da.GetBlobReferenceByHeight(chainID, height)
 	if !found {
 		c.JSON(http.StatusNotFound, gin.H{"error": "No discussions found for this block height"})
@@ -836,7 +836,7 @@ func GetBlockDiscussionsByHeight(c *gin.Context) {
 func ListBlockDiscussions(c *gin.Context) {
 	chainID := c.GetString("chainID")
 
-	// Try to get the blob references from RocksDB first
+	// Try to get the blob references from badgerDB first
 	db := getDBForChain(chainID)
 	if db != nil {
 		blobRefs, err := db.GetByPrefix(fmt.Sprintf("blobref:%s:", chainID))
@@ -876,7 +876,7 @@ func ListBlockDiscussions(c *gin.Context) {
 		}
 	}
 
-	// Fall back to the original method if not found in RocksDB
+	// Fall back to the original method if not found in badgerDB
 	refs := da.GetBlobReferencesForChain(chainID)
 	if len(refs) == 0 {
 		c.JSON(http.StatusOK, gin.H{"blocks": []interface{}{}})
@@ -896,150 +896,4 @@ func ListBlockDiscussions(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"blocks": blocks})
-}
-
-// TestBadgerDB tests if BadgerDB is working correctly
-func TestBadgerDB(c *gin.Context) {
-	chainID := c.GetString("chainID")
-
-	// Get DB instance
-	db, err := storage.GetDBStorage("./data", chainID)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to get DB instance: %v", err)})
-		return
-	}
-
-	// Test data
-	testKey := fmt.Sprintf("test:%s:key1", chainID)
-	testValue := []byte("This is a test value")
-	testObj := map[string]interface{}{
-		"name":      "Test Object",
-		"timestamp": time.Now().Unix(),
-		"values":    []int{1, 2, 3, 4, 5},
-	}
-	testObjKey := fmt.Sprintf("test:%s:obj1", chainID)
-
-	// Test results
-	results := make(map[string]interface{})
-
-	// Test 1: Put and Get a simple value
-	err = db.Put(testKey, testValue)
-	if err != nil {
-		results["test1_put"] = fmt.Sprintf("Failed: %v", err)
-	} else {
-		results["test1_put"] = "Success"
-	}
-
-	value, err := db.Get(testKey)
-	if err != nil {
-		results["test1_get"] = fmt.Sprintf("Failed: %v", err)
-	} else if value == nil {
-		results["test1_get"] = "Failed: Value is nil"
-	} else if string(value) != string(testValue) {
-		results["test1_get"] = fmt.Sprintf("Failed: Expected '%s', got '%s'", string(testValue), string(value))
-	} else {
-		results["test1_get"] = "Success"
-	}
-
-	// Test 2: Put and Get an object
-	err = db.PutObject(testObjKey, testObj)
-	if err != nil {
-		results["test2_put"] = fmt.Sprintf("Failed: %v", err)
-	} else {
-		results["test2_put"] = "Success"
-	}
-
-	var retrievedObj map[string]interface{}
-	err = db.GetObject(testObjKey, &retrievedObj)
-	if err != nil {
-		results["test2_get"] = fmt.Sprintf("Failed: %v", err)
-	} else {
-		// Compare some fields
-		if retrievedObj["name"] != testObj["name"] {
-			results["test2_get"] = fmt.Sprintf("Failed: Name mismatch. Expected '%s', got '%s'",
-				testObj["name"], retrievedObj["name"])
-		} else {
-			results["test2_get"] = "Success"
-		}
-	}
-
-	// Test 3: Delete a value
-	err = db.Delete(testKey)
-	if err != nil {
-		results["test3_delete"] = fmt.Sprintf("Failed: %v", err)
-	} else {
-		results["test3_delete"] = "Success"
-	}
-
-	// Verify deletion
-	value, err = db.Get(testKey)
-	if err != nil {
-		results["test3_verify"] = fmt.Sprintf("Failed: %v", err)
-	} else if value != nil {
-		results["test3_verify"] = "Failed: Value still exists after deletion"
-	} else {
-		results["test3_verify"] = "Success"
-	}
-
-	// Test 4: GetByPrefix
-	// Add multiple values with the same prefix
-	prefix := fmt.Sprintf("prefix:%s:", chainID)
-	for i := 1; i <= 5; i++ {
-		key := fmt.Sprintf("%sitem%d", prefix, i)
-		err = db.Put(key, []byte(fmt.Sprintf("Value %d", i)))
-		if err != nil {
-			results[fmt.Sprintf("test4_put_%d", i)] = fmt.Sprintf("Failed: %v", err)
-		}
-	}
-
-	// Get by prefix
-	prefixValues, err := db.GetByPrefix(prefix)
-	if err != nil {
-		results["test4_getbyprefix"] = fmt.Sprintf("Failed: %v", err)
-	} else if len(prefixValues) != 5 {
-		results["test4_getbyprefix"] = fmt.Sprintf("Failed: Expected 5 values, got %d", len(prefixValues))
-	} else {
-		results["test4_getbyprefix"] = "Success"
-		results["test4_values"] = len(prefixValues)
-	}
-
-	// Test 5: DeleteByPrefix
-	err = db.DeleteByPrefix(prefix)
-	if err != nil {
-		results["test5_deletebyprefix"] = fmt.Sprintf("Failed: %v", err)
-	} else {
-		results["test5_deletebyprefix"] = "Success"
-	}
-
-	// Verify prefix deletion
-	prefixValues, err = db.GetByPrefix(prefix)
-	if err != nil {
-		results["test5_verify"] = fmt.Sprintf("Failed: %v", err)
-	} else if len(prefixValues) != 0 {
-		results["test5_verify"] = fmt.Sprintf("Failed: Expected 0 values, got %d", len(prefixValues))
-	} else {
-		results["test5_verify"] = "Success"
-	}
-
-	// Clean up remaining test data
-	db.Delete(testObjKey)
-
-	// Return test results
-	c.JSON(http.StatusOK, gin.H{
-		"message":          "BadgerDB test completed",
-		"results":          results,
-		"all_tests_passed": allTestsPassed(results),
-	})
-}
-
-// Helper function to check if all tests passed
-func allTestsPassed(results map[string]interface{}) bool {
-	for _, result := range results {
-		if str, ok := result.(string); ok {
-			if !strings.HasPrefix(str, "Success") {
-				return false
-			}
-		}
-	}
-	return true
 }
