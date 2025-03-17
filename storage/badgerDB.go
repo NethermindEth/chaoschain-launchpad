@@ -6,16 +6,75 @@ import (
 	"log"
 	"path/filepath"
 	"sync"
+	"sync/atomic" 
+	"time" 
 
 	"github.com/NethermindEth/chaoschain-launchpad/core"
 	"github.com/NethermindEth/chaoschain-launchpad/mempool"
 	"github.com/dgraph-io/badger/v3"
 )
 
+
+type Storage interface {
+    // Generic operations
+    Put(key string, value []byte) error
+    Get(key string) ([]byte, error)
+    Delete(key string) error
+    GetByPrefix(prefix string) (map[string][]byte, error)
+    DeleteByPrefix(prefix string) error
+    PutObject(key string, obj interface{}) error
+    GetObject(key string, obj interface{}) error
+    
+    // Domain-specific operations
+    SaveTransaction(chainID string, tx core.Transaction) error
+    GetTransaction(chainID, txID string) (core.Transaction, error)
+    DeleteTransaction(chainID, txID string) error
+    SaveEphemeralVote(chainID string, vote mempool.EphemeralVote) error
+    GetEphemeralVotes(chainID string) ([]mempool.EphemeralVote, error)
+    SaveEphemeralBlockHash(chainID, blockHash string) error
+    GetEphemeralBlockHashes(chainID string) ([]string, error)
+    SaveAgentIdentity(chainID, agentID, identity string) error
+    GetAgentIdentities(chainID string) (map[string]string, error)
+    ClearChainData(chainID string) error
+    
+    // Management operations
+    Close() error
+    RunGC() error
+}
+
+type DBMetrics struct {
+    PutCount        int64
+    GetCount        int64
+    DeleteCount     int64
+    GetByPrefixCount int64
+    Errors          int64
+}
+
+func (s *DBStorage) recordMetric(name string) {
+    // Implementation depends on your metrics library
+    // Example with atomic counters:
+    switch name {
+    case "put":
+        atomic.AddInt64(&s.metrics.PutCount, 1)
+    case "get":
+        atomic.AddInt64(&s.metrics.GetCount, 1)
+    // etc.
+    }
+}
+
+func (s *DBStorage) logOperation(op string, key string, err error) {
+    if err != nil {
+        log.Printf("BadgerDB %s operation failed for key %s: %v", op, key, err)
+        atomic.AddInt64(&s.metrics.Errors, 1)
+    }
+}
+
 // DBStorage represents a persistent storage using BadgerDB
 type DBStorage struct {
-	db *badger.DB
-	mu sync.Mutex
+    db      *badger.DB
+    mu      sync.Mutex
+    config  BadgerDBConfig
+    metrics DBMetrics
 }
 
 var (
@@ -26,47 +85,75 @@ var (
 
 // GetDBStorage returns a DB instance for the specified chain
 func GetDBStorage(dataDir, chainID string) (*DBStorage, error) {
-	mu.RLock()
-	instance, exists := instances[chainID]
-	mu.RUnlock()
+    return GetDBStorageWithConfig(DefaultConfig(dataDir), chainID)
+}
 
-	if exists {
-		return instance, nil
-	}
+// GetDBStorageWithConfig returns a DB instance with custom configuration
+func GetDBStorageWithConfig(config BadgerDBConfig, chainID string) (*DBStorage, error) {
+    mu.RLock()
+    instance, exists := instances[chainID]
+    mu.RUnlock()
 
-	mu.Lock()
-	defer mu.Unlock()
+    if exists {
+        return instance, nil
+    }
 
-	// Check again in case another goroutine created it while we were waiting
-	instance, exists = instances[chainID]
-	if exists {
-		return instance, nil
-	}
+    mu.Lock()
+    defer mu.Unlock()
 
-	// Create a new instance
-	dbPath := filepath.Join(dataDir, "badgerdb", chainID)
-	instance, err := newDBStorage(dbPath)
-	if err != nil {
-		return nil, err
-	}
+    // Check again in case another goroutine created it while we were waiting
+    instance, exists = instances[chainID]
+    if exists {
+        return instance, nil
+    }
 
-	instances[chainID] = instance
-	return instance, nil
+    // Create a new instance
+    dbPath := filepath.Join(config.DataDir, "badgerdb", chainID)
+    instance, err := newDBStorage(dbPath, config)
+    if err != nil {
+        return nil, err
+    }
+
+    instances[chainID] = instance
+    
+    // Start GC if enabled
+    if config.GCInterval > 0 {
+        go instance.startGCRoutine(time.Duration(config.GCInterval) * time.Second)
+    }
+    
+    return instance, nil
 }
 
 // newDBStorage creates a new BadgerDB storage instance
-func newDBStorage(dbPath string) (*DBStorage, error) {
-	opts := badger.DefaultOptions(dbPath)
-	opts.Logger = nil // Disable logging
+func newDBStorage(dbPath string, config BadgerDBConfig) (*DBStorage, error) {
+    opts := badger.DefaultOptions(dbPath)
+    if config.DisableLogging {
+        opts.Logger = nil
+    }
+    opts.InMemory = config.InMemory
+    opts.SyncWrites = config.SyncWrites
 
-	db, err := badger.Open(opts)
-	if err != nil {
-		return nil, fmt.Errorf("failed to open BadgerDB: %v", err)
-	}
+    db, err := badger.Open(opts)
+    if err != nil {
+        return nil, fmt.Errorf("failed to open BadgerDB: %v", err)
+    }
 
-	return &DBStorage{
-		db: db,
-	}, nil
+    return &DBStorage{
+        db:     db,
+        config: config,
+    }, nil
+}
+
+func (s *DBStorage) startGCRoutine(interval time.Duration) {
+    ticker := time.NewTicker(interval)
+    defer ticker.Stop()
+    
+    for range ticker.C {
+        err := s.RunGC()
+        if err != nil {
+            log.Printf("BadgerDB GC failed: %v", err)
+        }
+    }
 }
 
 // Close closes the BadgerDB database
