@@ -508,6 +508,7 @@ func ProposeBlock(c *gin.Context) {
 		2*time.Second // Safety margin
 
 	select {
+
 	case consensusResult := <-result:
 		// Store offchain data to EigenDA and clear temporary mempool data
 		if mp := mempool.GetMempool(chainID); mp != nil {
