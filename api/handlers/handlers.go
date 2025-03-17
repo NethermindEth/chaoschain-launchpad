@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
@@ -10,12 +11,14 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"github.com/nats-io/nats.go"
 
 	"github.com/NethermindEth/chaoschain-launchpad/ai"
 	"github.com/NethermindEth/chaoschain-launchpad/cmd/node"
 	"github.com/NethermindEth/chaoschain-launchpad/communication"
 	"github.com/NethermindEth/chaoschain-launchpad/consensus"
 	"github.com/NethermindEth/chaoschain-launchpad/core"
+	da "github.com/NethermindEth/chaoschain-launchpad/da_layer"
 	"github.com/NethermindEth/chaoschain-launchpad/mempool"
 	"github.com/NethermindEth/chaoschain-launchpad/p2p"
 	"github.com/NethermindEth/chaoschain-launchpad/producer"
@@ -24,8 +27,9 @@ import (
 )
 
 var (
-	lastUsedPort = 8080
-	portMutex    sync.Mutex
+	lastUsedPort         = 8080
+	portMutex            sync.Mutex
+	agentIdentitiesMutex sync.RWMutex
 )
 
 func findAvailablePort() int {
@@ -355,6 +359,78 @@ func ProposeBlock(c *gin.Context) {
 	title := fmt.Sprintf("Block Proposal %s", threadID)
 	communication.CreateThread(threadID, title, producerName)
 
+	// Set up a subscription to capture discussions for this block
+	mp := mempool.GetMempool(chainID)
+
+	if mp != nil {
+		// Subscribe to agent discussions via broker
+		// if broker != nil {
+		_, err := core.NatsBrokerInstance.Subscribe("AGENT_DISCUSSION", func(m *nats.Msg) {
+			var discussion consensus.Discussion
+			if err := json.Unmarshal(m.Data, &discussion); err != nil {
+				log.Printf("Error unmarshalling discussion from NATS: %v", err)
+				return
+			}
+
+			// Store vote information in mempool for later storage in EigenDA
+			mp.EphemeralVotes = append(mp.EphemeralVotes, mempool.EphemeralVote{
+				ID:           discussion.ID,
+				AgentID:      discussion.ValidatorID,
+				VoteDecision: discussion.Type,
+				Timestamp:    discussion.Timestamp.Unix(),
+			})
+
+			// Store agent identity if not already stored
+			agentIdentitiesMutex.Lock()
+			if _, exists := mp.EphemeralAgentIdentities[discussion.ValidatorID]; !exists {
+				// Get validator name if available
+				v := validator.GetValidatorByID(chainID, discussion.ValidatorID)
+				if v != nil {
+					mp.EphemeralAgentIdentities[discussion.ValidatorID] = v.Name
+				} else {
+					mp.EphemeralAgentIdentities[discussion.ValidatorID] = discussion.ValidatorID
+				}
+			}
+			agentIdentitiesMutex.Unlock()
+		})
+		if err != nil {
+			log.Printf("Error subscribing to AGENT_DISCUSSION: %v", err)
+		}
+
+		// Also subscribe to final votes
+		_, err = core.NatsBrokerInstance.Subscribe("AGENT_VOTE", func(m *nats.Msg) {
+			var vote consensus.Discussion
+			if err := json.Unmarshal(m.Data, &vote); err != nil {
+				log.Printf("Error unmarshalling vote from NATS: %v", err)
+				return
+			}
+
+			// Store vote information in mempool for later storage in EigenDA
+			mp.EphemeralVotes = append(mp.EphemeralVotes, mempool.EphemeralVote{
+				AgentID:      vote.ValidatorID,
+				VoteDecision: vote.Type,
+				Timestamp:    vote.Timestamp.Unix(),
+			})
+
+			// Store agent identity if not already stored
+			agentIdentitiesMutex.Lock()
+			if _, exists := mp.EphemeralAgentIdentities[vote.ValidatorID]; !exists {
+				// Get validator name if available
+				v := validator.GetValidatorByID(chainID, vote.ValidatorID)
+				if v != nil {
+					mp.EphemeralAgentIdentities[vote.ValidatorID] = v.Name
+				} else {
+					mp.EphemeralAgentIdentities[vote.ValidatorID] = vote.ValidatorID
+				}
+			}
+			agentIdentitiesMutex.Unlock()
+		})
+		if err != nil {
+			log.Printf("Error subscribing to AGENT_VOTE: %v", err)
+		}
+		// }
+	}
+
 	cm := consensus.GetConsensusManager(chainID)
 	if err := cm.ProposeBlock(block); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Failed to start consensus: " + err.Error()})
@@ -379,7 +455,52 @@ func ProposeBlock(c *gin.Context) {
 		2*time.Second // Safety margin
 
 	select {
+
 	case consensusResult := <-result:
+
+		// Store offchain data to EigenDA and clear temporary mempool data
+		if mp := mempool.GetMempool(chainID); mp != nil {
+			// Get discussions from consensus if available
+			var discussions []consensus.Discussion
+			activeConsensus := cm.GetActiveConsensus()
+			if activeConsensus != nil {
+				discussions = activeConsensus.GetDiscussions()
+			}
+
+			// No need to convert discussions since we're using the standardized struct directly
+
+			votes := make([]da.Vote, len(mp.EphemeralVotes))
+			for i, ev := range mp.EphemeralVotes {
+				votes[i] = da.Vote{
+					AgentID:      ev.AgentID,
+					VoteDecision: ev.VoteDecision,
+					Timestamp:    ev.Timestamp,
+				}
+			}
+
+			offchain := da.OffchainData{
+				ChainID:     chainID,
+				BlockHash:   threadID,
+				BlockHeight: block.Height,
+				Discussions: discussions, // Using the discussions directly
+				Votes:       votes,
+				Outcome: func() string {
+					if consensusResult.State == consensus.Accepted {
+						return "accepted"
+					}
+					return "rejected"
+				}(),
+				AgentIdentities: mp.EphemeralAgentIdentities,
+				Timestamp:       time.Now().Unix(),
+			}
+			if id, err := da.SaveOffchainData(offchain); err != nil {
+				log.Printf("Error saving offchain data: %v", err)
+			} else {
+				log.Printf("Offchain data saved with id: %s", id)
+			}
+			mp.ClearTemporaryData()
+		}
+
 		c.JSON(http.StatusOK, gin.H{
 			"message":   "Consensus completed",
 			"block":     block,
@@ -389,6 +510,8 @@ func ProposeBlock(c *gin.Context) {
 			"thread_id": threadID,
 		})
 	case <-time.After(totalTime):
+		// Close the broker to clean up subscriptions
+
 		c.JSON(http.StatusGatewayTimeout, gin.H{
 			"error":     "Consensus timed out",
 			"block":     block,
@@ -465,4 +588,109 @@ func ListChains(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"chains": chains,
 	})
+}
+
+// GetBlockDiscussions returns the discussions for a specific block by hash
+func GetBlockDiscussions(c *gin.Context) {
+	chainID := c.GetString("chainID")
+	blockHash := c.Param("blockHash")
+
+	// Get the blob reference for this block
+	ref, found := da.GetBlobReferenceByBlockHash(chainID, blockHash)
+	if !found {
+		c.JSON(http.StatusNotFound, gin.H{"error": "No discussions found for this block"})
+		return
+	}
+
+	// Retrieve the data from EigenDA
+	offchainData, err := da.GetOffchainData(ref.BlobID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to retrieve discussions: %v", err)})
+		return
+	}
+
+	// Format timestamps for better readability in the response
+	formattedDiscussions := make([]map[string]interface{}, len(offchainData.Discussions))
+	for i, d := range offchainData.Discussions {
+		formattedDiscussions[i] = map[string]interface{}{
+			"id":          d.ID,
+			"validatorId": d.ValidatorID,
+			"message":     d.Message,
+			"timestamp":   d.Timestamp.Format(time.RFC3339),
+			"type":        d.Type,
+			"round":       d.Round,
+		}
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"blockHash":   blockHash,
+		"blockHeight": ref.BlockHeight,
+		"discussions": formattedDiscussions,
+		"votes":       offchainData.Votes,
+		"outcome":     offchainData.Outcome,
+		"agents":      offchainData.AgentIdentities,
+		"timestamp":   time.Unix(offchainData.Timestamp, 0).Format(time.RFC3339),
+	})
+}
+
+// GetBlockDiscussionsByHeight returns the discussions for a specific block by height
+func GetBlockDiscussionsByHeight(c *gin.Context) {
+	chainID := c.GetString("chainID")
+	heightStr := c.Param("height")
+
+	height, err := strconv.Atoi(heightStr)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid block height"})
+		return
+	}
+
+	// Get the blob reference for this block
+	ref, found := da.GetBlobReferenceByHeight(chainID, height)
+	if !found {
+		c.JSON(http.StatusNotFound, gin.H{"error": "No discussions found for this block height"})
+		return
+	}
+
+	// Retrieve the data from EigenDA
+	offchainData, err := da.GetOffchainData(ref.BlobID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to retrieve discussions: %v", err)})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"blockHash":   ref.BlockHash,
+		"blockHeight": height,
+		"discussions": offchainData.Discussions,
+		"votes":       offchainData.Votes,
+		"outcome":     offchainData.Outcome,
+		"agents":      offchainData.AgentIdentities,
+		"timestamp":   offchainData.Timestamp,
+	})
+}
+
+// ListBlockDiscussions returns a list of all blocks with discussions for a chain
+func ListBlockDiscussions(c *gin.Context) {
+	chainID := c.GetString("chainID")
+
+	// Get all blob references for this chain
+	refs := da.GetBlobReferencesForChain(chainID)
+	if len(refs) == 0 {
+		c.JSON(http.StatusOK, gin.H{"blocks": []interface{}{}})
+		return
+	}
+
+	// Create a summary for each block
+	blocks := make([]map[string]interface{}, len(refs))
+	for i, ref := range refs {
+		blocks[i] = map[string]interface{}{
+			"blockHash":   ref.BlockHash,
+			"blockHeight": ref.BlockHeight,
+			"outcome":     ref.Outcome,
+			"timestamp":   ref.Timestamp,
+			"blobId":      ref.BlobID,
+		}
+	}
+
+	c.JSON(http.StatusOK, gin.H{"blocks": blocks})
 }
