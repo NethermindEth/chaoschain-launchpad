@@ -6,6 +6,7 @@ import (
 	"log"
 	"net/http"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -23,6 +24,7 @@ import (
 	"github.com/NethermindEth/chaoschain-launchpad/p2p"
 	"github.com/NethermindEth/chaoschain-launchpad/producer"
 	"github.com/NethermindEth/chaoschain-launchpad/registry"
+	"github.com/NethermindEth/chaoschain-launchpad/storage"
 	"github.com/NethermindEth/chaoschain-launchpad/validator"
 )
 
@@ -335,10 +337,23 @@ func UpdateRelationship(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": "Relationship updated successfully"})
 }
 
+// Add a function to get the RocksDB instance for a chain
+func getDBForChain(chainID string) *storage.DBStorage {
+	db, err := storage.GetDBStorage("./data", chainID)
+	if err != nil {
+		log.Printf("Failed to get DB for chain %s: %v", chainID, err)
+		return nil
+	}
+	return db
+}
+
 // ProposeBlock creates a new block and starts consensus
 func ProposeBlock(c *gin.Context) {
 	chainID := c.GetString("chainID")
 	waitForConsensus := c.DefaultQuery("wait", "false") == "true"
+
+	// Get RocksDB instance for this chain
+	db := getDBForChain(chainID)
 
 	bc := core.GetChain(chainID)
 	if bc == nil {
@@ -364,7 +379,6 @@ func ProposeBlock(c *gin.Context) {
 
 	if mp != nil {
 		// Subscribe to agent discussions via broker
-		// if broker != nil {
 		_, err := core.NatsBrokerInstance.Subscribe("AGENT_DISCUSSION", func(m *nats.Msg) {
 			var discussion consensus.Discussion
 			if err := json.Unmarshal(m.Data, &discussion); err != nil {
@@ -373,22 +387,42 @@ func ProposeBlock(c *gin.Context) {
 			}
 
 			// Store vote information in mempool for later storage in EigenDA
-			mp.EphemeralVotes = append(mp.EphemeralVotes, mempool.EphemeralVote{
+			ephemeralVote := mempool.EphemeralVote{
 				ID:           discussion.ID,
 				AgentID:      discussion.ValidatorID,
 				VoteDecision: discussion.Type,
 				Timestamp:    discussion.Timestamp.Unix(),
-			})
+			}
+			mp.EphemeralVotes = append(mp.EphemeralVotes, ephemeralVote)
+
+			// Also persist to RocksDB
+			if db != nil {
+				voteKey := fmt.Sprintf("vote:%s:%s", chainID, discussion.ID)
+				if err := db.PutObject(voteKey, ephemeralVote); err != nil {
+					log.Printf("Failed to save vote to RocksDB: %v", err)
+				}
+			}
 
 			// Store agent identity if not already stored
 			agentIdentitiesMutex.Lock()
 			if _, exists := mp.EphemeralAgentIdentities[discussion.ValidatorID]; !exists {
 				// Get validator name if available
 				v := validator.GetValidatorByID(chainID, discussion.ValidatorID)
+				var agentName string
 				if v != nil {
+					agentName = v.Name
 					mp.EphemeralAgentIdentities[discussion.ValidatorID] = v.Name
 				} else {
+					agentName = discussion.ValidatorID
 					mp.EphemeralAgentIdentities[discussion.ValidatorID] = discussion.ValidatorID
+				}
+
+				// Also persist to RocksDB
+				if db != nil {
+					agentKey := fmt.Sprintf("agent:%s:%s", chainID, discussion.ValidatorID)
+					if err := db.Put(agentKey, []byte(agentName)); err != nil {
+						log.Printf("Failed to save agent identity to RocksDB: %v", err)
+					}
 				}
 			}
 			agentIdentitiesMutex.Unlock()
@@ -406,21 +440,41 @@ func ProposeBlock(c *gin.Context) {
 			}
 
 			// Store vote information in mempool for later storage in EigenDA
-			mp.EphemeralVotes = append(mp.EphemeralVotes, mempool.EphemeralVote{
+			ephemeralVote := mempool.EphemeralVote{
 				AgentID:      vote.ValidatorID,
 				VoteDecision: vote.Type,
 				Timestamp:    vote.Timestamp.Unix(),
-			})
+			}
+			mp.EphemeralVotes = append(mp.EphemeralVotes, ephemeralVote)
+
+			// Also persist to RocksDB
+			if db != nil {
+				voteKey := fmt.Sprintf("vote:%s:%s", chainID, vote.ID)
+				if err := db.PutObject(voteKey, ephemeralVote); err != nil {
+					log.Printf("Failed to save vote to RocksDB: %v", err)
+				}
+			}
 
 			// Store agent identity if not already stored
 			agentIdentitiesMutex.Lock()
 			if _, exists := mp.EphemeralAgentIdentities[vote.ValidatorID]; !exists {
 				// Get validator name if available
 				v := validator.GetValidatorByID(chainID, vote.ValidatorID)
+				var agentName string
 				if v != nil {
+					agentName = v.Name
 					mp.EphemeralAgentIdentities[vote.ValidatorID] = v.Name
 				} else {
+					agentName = vote.ValidatorID
 					mp.EphemeralAgentIdentities[vote.ValidatorID] = vote.ValidatorID
+				}
+
+				// Also persist to RocksDB
+				if db != nil {
+					agentKey := fmt.Sprintf("agent:%s:%s", chainID, vote.ValidatorID)
+					if err := db.Put(agentKey, []byte(agentName)); err != nil {
+						log.Printf("Failed to save agent identity to RocksDB: %v", err)
+					}
 				}
 			}
 			agentIdentitiesMutex.Unlock()
@@ -428,7 +482,6 @@ func ProposeBlock(c *gin.Context) {
 		if err != nil {
 			log.Printf("Error subscribing to AGENT_VOTE: %v", err)
 		}
-		// }
 	}
 
 	cm := consensus.GetConsensusManager(chainID)
@@ -455,9 +508,7 @@ func ProposeBlock(c *gin.Context) {
 		2*time.Second // Safety margin
 
 	select {
-
 	case consensusResult := <-result:
-
 		// Store offchain data to EigenDA and clear temporary mempool data
 		if mp := mempool.GetMempool(chainID); mp != nil {
 			// Get discussions from consensus if available
@@ -466,8 +517,6 @@ func ProposeBlock(c *gin.Context) {
 			if activeConsensus != nil {
 				discussions = activeConsensus.GetDiscussions()
 			}
-
-			// No need to convert discussions since we're using the standardized struct directly
 
 			votes := make([]da.Vote, len(mp.EphemeralVotes))
 			for i, ev := range mp.EphemeralVotes {
@@ -482,7 +531,7 @@ func ProposeBlock(c *gin.Context) {
 				ChainID:     chainID,
 				BlockHash:   threadID,
 				BlockHeight: block.Height,
-				Discussions: discussions, // Using the discussions directly
+				Discussions: discussions,
 				Votes:       votes,
 				Outcome: func() string {
 					if consensusResult.State == consensus.Accepted {
@@ -493,12 +542,48 @@ func ProposeBlock(c *gin.Context) {
 				AgentIdentities: mp.EphemeralAgentIdentities,
 				Timestamp:       time.Now().Unix(),
 			}
+
+			// Save to EigenDA
 			if id, err := da.SaveOffchainData(offchain); err != nil {
 				log.Printf("Error saving offchain data: %v", err)
 			} else {
 				log.Printf("Offchain data saved with id: %s", id)
+
+				// Also save the blob reference to RocksDB
+				if db != nil {
+					blobRefKey := fmt.Sprintf("blobref:%s:%s", chainID, threadID)
+					blobRef := struct {
+						BlobID      string
+						BlockHash   string
+						BlockHeight int
+						Timestamp   int64
+					}{
+						BlobID:      id,
+						BlockHash:   threadID,
+						BlockHeight: block.Height,
+						Timestamp:   time.Now().Unix(),
+					}
+					if err := db.PutObject(blobRefKey, blobRef); err != nil {
+						log.Printf("Failed to save blob reference to RocksDB: %v", err)
+					}
+				}
 			}
+
+			// Clear temporary data from mempool
 			mp.ClearTemporaryData()
+
+			// Also clear temporary data from RocksDB
+			if db != nil {
+				prefixes := []string{
+					fmt.Sprintf("vote:%s:", chainID),
+					fmt.Sprintf("agent:%s:", chainID),
+				}
+				for _, prefix := range prefixes {
+					if err := db.DeleteByPrefix(prefix); err != nil {
+						log.Printf("Failed to clear data with prefix %s from RocksDB: %v", prefix, err)
+					}
+				}
+			}
 		}
 
 		c.JSON(http.StatusOK, gin.H{
@@ -595,7 +680,49 @@ func GetBlockDiscussions(c *gin.Context) {
 	chainID := c.GetString("chainID")
 	blockHash := c.Param("blockHash")
 
-	// Get the blob reference for this block
+	// Try to get the blob reference from RocksDB first
+	db := getDBForChain(chainID)
+	if db != nil {
+		blobRefKey := fmt.Sprintf("blobref:%s:%s", chainID, blockHash)
+		var blobRef struct {
+			BlobID      string
+			BlockHash   string
+			BlockHeight int
+			Timestamp   int64
+		}
+
+		if err := db.GetObject(blobRefKey, &blobRef); err == nil {
+			// Found in RocksDB, retrieve from EigenDA
+			offchainData, err := da.GetOffchainData(blobRef.BlobID)
+			if err == nil {
+				// Format timestamps for better readability in the response
+				formattedDiscussions := make([]map[string]interface{}, len(offchainData.Discussions))
+				for i, d := range offchainData.Discussions {
+					formattedDiscussions[i] = map[string]interface{}{
+						"id":          d.ID,
+						"validatorId": d.ValidatorID,
+						"message":     d.Message,
+						"timestamp":   d.Timestamp.Format(time.RFC3339),
+						"type":        d.Type,
+						"round":       d.Round,
+					}
+				}
+
+				c.JSON(http.StatusOK, gin.H{
+					"blockHash":   blockHash,
+					"blockHeight": blobRef.BlockHeight,
+					"discussions": formattedDiscussions,
+					"votes":       offchainData.Votes,
+					"outcome":     offchainData.Outcome,
+					"agents":      offchainData.AgentIdentities,
+					"timestamp":   time.Unix(offchainData.Timestamp, 0).Format(time.RFC3339),
+				})
+				return
+			}
+		}
+	}
+
+	// Fall back to the original method if not found in RocksDB
 	ref, found := da.GetBlobReferenceByBlockHash(chainID, blockHash)
 	if !found {
 		c.JSON(http.StatusNotFound, gin.H{"error": "No discussions found for this block"})
@@ -644,7 +771,43 @@ func GetBlockDiscussionsByHeight(c *gin.Context) {
 		return
 	}
 
-	// Get the blob reference for this block
+	// Try to get the blob reference from RocksDB first
+	db := getDBForChain(chainID)
+	if db != nil {
+		// Get all blob references and find the one with matching height
+		blobRefs, err := db.GetByPrefix(fmt.Sprintf("blobref:%s:", chainID))
+		if err == nil {
+			for _, data := range blobRefs {
+				var blobRef struct {
+					BlobID      string
+					BlockHash   string
+					BlockHeight int
+					Timestamp   int64
+				}
+
+				if err := json.Unmarshal(data, &blobRef); err == nil {
+					if blobRef.BlockHeight == height {
+						// Found in RocksDB, retrieve from EigenDA
+						offchainData, err := da.GetOffchainData(blobRef.BlobID)
+						if err == nil {
+							c.JSON(http.StatusOK, gin.H{
+								"blockHash":   blobRef.BlockHash,
+								"blockHeight": height,
+								"discussions": offchainData.Discussions,
+								"votes":       offchainData.Votes,
+								"outcome":     offchainData.Outcome,
+								"agents":      offchainData.AgentIdentities,
+								"timestamp":   offchainData.Timestamp,
+							})
+							return
+						}
+					}
+				}
+			}
+		}
+	}
+
+	// Fall back to the original method if not found in RocksDB
 	ref, found := da.GetBlobReferenceByHeight(chainID, height)
 	if !found {
 		c.JSON(http.StatusNotFound, gin.H{"error": "No discussions found for this block height"})
@@ -673,7 +836,47 @@ func GetBlockDiscussionsByHeight(c *gin.Context) {
 func ListBlockDiscussions(c *gin.Context) {
 	chainID := c.GetString("chainID")
 
-	// Get all blob references for this chain
+	// Try to get the blob references from RocksDB first
+	db := getDBForChain(chainID)
+	if db != nil {
+		blobRefs, err := db.GetByPrefix(fmt.Sprintf("blobref:%s:", chainID))
+		if err == nil && len(blobRefs) > 0 {
+			blocks := make([]map[string]interface{}, 0, len(blobRefs))
+
+			for _, data := range blobRefs {
+				var blobRef struct {
+					BlobID      string
+					BlockHash   string
+					BlockHeight int
+					Timestamp   int64
+				}
+
+				if err := json.Unmarshal(data, &blobRef); err == nil {
+					// Try to get outcome from EigenDA
+					outcome := "unknown"
+					offchainData, err := da.GetOffchainData(blobRef.BlobID)
+					if err == nil {
+						outcome = offchainData.Outcome
+					}
+
+					blocks = append(blocks, map[string]interface{}{
+						"blockHash":   blobRef.BlockHash,
+						"blockHeight": blobRef.BlockHeight,
+						"outcome":     outcome,
+						"timestamp":   blobRef.Timestamp,
+						"blobId":      blobRef.BlobID,
+					})
+				}
+			}
+
+			if len(blocks) > 0 {
+				c.JSON(http.StatusOK, gin.H{"blocks": blocks})
+				return
+			}
+		}
+	}
+
+	// Fall back to the original method if not found in RocksDB
 	refs := da.GetBlobReferencesForChain(chainID)
 	if len(refs) == 0 {
 		c.JSON(http.StatusOK, gin.H{"blocks": []interface{}{}})
@@ -693,4 +896,150 @@ func ListBlockDiscussions(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"blocks": blocks})
+}
+
+// TestBadgerDB tests if BadgerDB is working correctly
+func TestBadgerDB(c *gin.Context) {
+	chainID := c.GetString("chainID")
+
+	// Get DB instance
+	db, err := storage.GetDBStorage("./data", chainID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to get DB instance: %v", err)})
+		return
+	}
+
+	// Test data
+	testKey := fmt.Sprintf("test:%s:key1", chainID)
+	testValue := []byte("This is a test value")
+	testObj := map[string]interface{}{
+		"name":      "Test Object",
+		"timestamp": time.Now().Unix(),
+		"values":    []int{1, 2, 3, 4, 5},
+	}
+	testObjKey := fmt.Sprintf("test:%s:obj1", chainID)
+
+	// Test results
+	results := make(map[string]interface{})
+
+	// Test 1: Put and Get a simple value
+	err = db.Put(testKey, testValue)
+	if err != nil {
+		results["test1_put"] = fmt.Sprintf("Failed: %v", err)
+	} else {
+		results["test1_put"] = "Success"
+	}
+
+	value, err := db.Get(testKey)
+	if err != nil {
+		results["test1_get"] = fmt.Sprintf("Failed: %v", err)
+	} else if value == nil {
+		results["test1_get"] = "Failed: Value is nil"
+	} else if string(value) != string(testValue) {
+		results["test1_get"] = fmt.Sprintf("Failed: Expected '%s', got '%s'", string(testValue), string(value))
+	} else {
+		results["test1_get"] = "Success"
+	}
+
+	// Test 2: Put and Get an object
+	err = db.PutObject(testObjKey, testObj)
+	if err != nil {
+		results["test2_put"] = fmt.Sprintf("Failed: %v", err)
+	} else {
+		results["test2_put"] = "Success"
+	}
+
+	var retrievedObj map[string]interface{}
+	err = db.GetObject(testObjKey, &retrievedObj)
+	if err != nil {
+		results["test2_get"] = fmt.Sprintf("Failed: %v", err)
+	} else {
+		// Compare some fields
+		if retrievedObj["name"] != testObj["name"] {
+			results["test2_get"] = fmt.Sprintf("Failed: Name mismatch. Expected '%s', got '%s'",
+				testObj["name"], retrievedObj["name"])
+		} else {
+			results["test2_get"] = "Success"
+		}
+	}
+
+	// Test 3: Delete a value
+	err = db.Delete(testKey)
+	if err != nil {
+		results["test3_delete"] = fmt.Sprintf("Failed: %v", err)
+	} else {
+		results["test3_delete"] = "Success"
+	}
+
+	// Verify deletion
+	value, err = db.Get(testKey)
+	if err != nil {
+		results["test3_verify"] = fmt.Sprintf("Failed: %v", err)
+	} else if value != nil {
+		results["test3_verify"] = "Failed: Value still exists after deletion"
+	} else {
+		results["test3_verify"] = "Success"
+	}
+
+	// Test 4: GetByPrefix
+	// Add multiple values with the same prefix
+	prefix := fmt.Sprintf("prefix:%s:", chainID)
+	for i := 1; i <= 5; i++ {
+		key := fmt.Sprintf("%sitem%d", prefix, i)
+		err = db.Put(key, []byte(fmt.Sprintf("Value %d", i)))
+		if err != nil {
+			results[fmt.Sprintf("test4_put_%d", i)] = fmt.Sprintf("Failed: %v", err)
+		}
+	}
+
+	// Get by prefix
+	prefixValues, err := db.GetByPrefix(prefix)
+	if err != nil {
+		results["test4_getbyprefix"] = fmt.Sprintf("Failed: %v", err)
+	} else if len(prefixValues) != 5 {
+		results["test4_getbyprefix"] = fmt.Sprintf("Failed: Expected 5 values, got %d", len(prefixValues))
+	} else {
+		results["test4_getbyprefix"] = "Success"
+		results["test4_values"] = len(prefixValues)
+	}
+
+	// Test 5: DeleteByPrefix
+	err = db.DeleteByPrefix(prefix)
+	if err != nil {
+		results["test5_deletebyprefix"] = fmt.Sprintf("Failed: %v", err)
+	} else {
+		results["test5_deletebyprefix"] = "Success"
+	}
+
+	// Verify prefix deletion
+	prefixValues, err = db.GetByPrefix(prefix)
+	if err != nil {
+		results["test5_verify"] = fmt.Sprintf("Failed: %v", err)
+	} else if len(prefixValues) != 0 {
+		results["test5_verify"] = fmt.Sprintf("Failed: Expected 0 values, got %d", len(prefixValues))
+	} else {
+		results["test5_verify"] = "Success"
+	}
+
+	// Clean up remaining test data
+	db.Delete(testObjKey)
+
+	// Return test results
+	c.JSON(http.StatusOK, gin.H{
+		"message":          "BadgerDB test completed",
+		"results":          results,
+		"all_tests_passed": allTestsPassed(results),
+	})
+}
+
+// Helper function to check if all tests passed
+func allTestsPassed(results map[string]interface{}) bool {
+	for _, result := range results {
+		if str, ok := result.(string); ok {
+			if !strings.HasPrefix(str, "Success") {
+				return false
+			}
+		}
+	}
+	return true
 }

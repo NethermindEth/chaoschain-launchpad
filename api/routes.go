@@ -55,6 +55,7 @@ func SetupRoutes(router *gin.Engine, chainID string) {
 			blockGroup.GET("/discussions/height/:height", handlers.GetBlockDiscussionsByHeight)
 			blockGroup.GET("/discussions", handlers.ListBlockDiscussions)
 		}
+		router.GET("/api/test/badgerdb", handlers.TestBadgerDB)
 	}
 
 	// WebSocket endpoint
