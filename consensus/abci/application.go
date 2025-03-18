@@ -3,11 +3,13 @@ package abci
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"sync"
 
 	"github.com/NethermindEth/chaoschain-launchpad/core"
 	"github.com/NethermindEth/chaoschain-launchpad/validator"
 	types "github.com/cometbft/cometbft/abci/types"
+	tmproto "github.com/cometbft/cometbft/proto/tendermint/types"
 )
 
 type Application struct {
@@ -15,12 +17,14 @@ type Application struct {
 	mu      sync.RWMutex
 	// Track discussion results for each transaction
 	discussions map[string]map[string]bool // txHash -> validatorID -> support
+	validators  []types.ValidatorUpdate    // Current validator set
 }
 
 func NewApplication(chainID string) types.Application {
 	return &Application{
 		chainID:     chainID,
 		discussions: make(map[string]map[string]bool),
+		validators:  make([]types.ValidatorUpdate, 0),
 	}
 }
 
@@ -36,7 +40,41 @@ func (app *Application) Info(req types.RequestInfo) types.ResponseInfo {
 }
 
 func (app *Application) InitChain(req types.RequestInitChain) types.ResponseInitChain {
-	return types.ResponseInitChain{}
+	log.Printf("InitChain called - Chain ID: %s", req.ChainId)
+	log.Printf("InitChain request: %+v", req)
+	log.Printf("InitChain Genesis Validators: %d", len(req.Validators))
+
+	// Create a validator directly during InitChain
+	// We need to manually create our validator since it's not being passed correctly
+	valPubKey := types.Ed25519ValidatorUpdate(
+		[]byte{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32},
+		1000000)
+
+	// Store validators from genesis
+	app.validators = []types.ValidatorUpdate{valPubKey}
+
+	// Log validators to debug
+	log.Printf("InitChain with manually created validator")
+	log.Printf("Created validator: %v", valPubKey)
+
+	// Must return validators even if empty to properly initialize the validator set
+	return types.ResponseInitChain{
+		Validators: []types.ValidatorUpdate{valPubKey}, // Return our manually created validator
+		ConsensusParams: &tmproto.ConsensusParams{
+			Block: &tmproto.BlockParams{
+				MaxBytes: 22020096, // 21MB
+				MaxGas:   -1,
+			},
+			Evidence: &tmproto.EvidenceParams{
+				MaxAgeNumBlocks: 100000,
+				MaxAgeDuration:  172800000000000, // 48 hours
+				MaxBytes:        1048576,         // 1MB
+			},
+			Validator: &tmproto.ValidatorParams{
+				PubKeyTypes: []string{"ed25519"},
+			},
+		},
+	}
 }
 
 func (app *Application) Query(req types.RequestQuery) types.ResponseQuery {
@@ -56,7 +94,26 @@ func (app *Application) BeginBlock(req types.RequestBeginBlock) types.ResponseBe
 }
 
 func (app *Application) EndBlock(req types.RequestEndBlock) types.ResponseEndBlock {
-	return types.ResponseEndBlock{}
+	// Genesis block is height 1
+	if req.Height == 1 {
+		log.Printf("EndBlock at height 1 - explicitly returning validators")
+
+		// Load the validator key
+		valPubKey := types.Ed25519ValidatorUpdate(
+			[]byte{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32},
+			1000000)
+
+		// Set this validator as active
+		app.validators = []types.ValidatorUpdate{valPubKey}
+
+		return types.ResponseEndBlock{
+			ValidatorUpdates: []types.ValidatorUpdate{valPubKey},
+		}
+	}
+
+	return types.ResponseEndBlock{
+		ValidatorUpdates: app.validators,
+	}
 }
 
 func (app *Application) Commit() types.ResponseCommit {

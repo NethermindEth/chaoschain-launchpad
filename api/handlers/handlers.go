@@ -4,8 +4,10 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"os"
 	"strconv"
 	"sync"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -15,6 +17,8 @@ import (
 	"github.com/NethermindEth/chaoschain-launchpad/core"
 	"github.com/NethermindEth/chaoschain-launchpad/validator"
 	cfg "github.com/cometbft/cometbft/config"
+	"github.com/cometbft/cometbft/p2p"
+	"github.com/cometbft/cometbft/privval"
 	rpchttp "github.com/cometbft/cometbft/rpc/client/http"
 	"github.com/cometbft/cometbft/types"
 )
@@ -401,6 +405,66 @@ func CreateChain(c *gin.Context) {
 	config.P2P.ListenAddress = "tcp://0.0.0.0:" + strconv.Itoa(p2pPort)
 	config.RPC.ListenAddress = "tcp://0.0.0.0:" + strconv.Itoa(rpcPort)
 
+	// Initialize config files and validator keys
+	if err := os.MkdirAll(config.BaseConfig.RootDir+"/config", 0755); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to create config directory: %v", err)})
+		return
+	}
+
+	// Initialize validator key files
+	privValKeyFile := config.PrivValidatorKeyFile()
+	privValStateFile := config.PrivValidatorStateFile()
+	if !fileExists(privValKeyFile) {
+		privVal := privval.GenFilePV(privValKeyFile, privValStateFile)
+		privVal.Save()
+	}
+
+	// Initialize node key file
+	nodeKeyFile := config.NodeKeyFile()
+	if !fileExists(nodeKeyFile) {
+		if _, err := p2p.LoadOrGenNodeKey(nodeKeyFile); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to generate node key: %v", err)})
+			return
+		}
+	}
+
+	// Initialize genesis.json if it doesn't exist
+	genesisFile := config.GenesisFile()
+	if !fileExists(genesisFile) {
+		// Get the validator's public key
+		privVal := privval.LoadFilePV(privValKeyFile, privValStateFile)
+		pubKey, err := privVal.GetPubKey()
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to get validator public key: %v", err)})
+			return
+		}
+
+		// Create genesis validator directly
+		genValidator := types.GenesisValidator{
+			PubKey: pubKey,
+			Power:  1000000, // Increase validator power significantly
+			Name:   "genesis",
+		}
+
+		genDoc := types.GenesisDoc{
+			ChainID:         req.ChainID,
+			GenesisTime:     time.Now(),
+			ConsensusParams: types.DefaultConsensusParams(),
+			Validators:      []types.GenesisValidator{genValidator},
+		}
+
+		// Validate genesis doc before saving
+		if err := genDoc.ValidateAndComplete(); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to validate genesis doc: %v", err)})
+			return
+		}
+
+		if err := genDoc.SaveAs(genesisFile); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to create genesis file: %v", err)})
+			return
+		}
+	}
+
 	// Create and start the genesis node
 	genesisNode, err := node.NewNode(config, req.ChainID)
 	if err != nil {
@@ -441,4 +505,9 @@ func validatorExists(validators []*types.Validator, agentID string) bool {
 		}
 	}
 	return false
+}
+
+func fileExists(filename string) bool {
+	_, err := os.Stat(filename)
+	return !os.IsNotExist(err)
 }
