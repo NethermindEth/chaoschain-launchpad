@@ -1,56 +1,64 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"log"
+	"os"
 
 	"github.com/NethermindEth/chaoschain-launchpad/api"
 	"github.com/NethermindEth/chaoschain-launchpad/cmd/node"
 	_ "github.com/NethermindEth/chaoschain-launchpad/config" // Initialize config
 	"github.com/NethermindEth/chaoschain-launchpad/core"
-	"github.com/NethermindEth/chaoschain-launchpad/mempool"
-	"github.com/NethermindEth/chaoschain-launchpad/p2p"
+	cfg "github.com/cometbft/cometbft/config"
 	"github.com/gin-gonic/gin"
 )
 
 func main() {
 	// Parse command line flags
 	chainID := flag.String("chain", "mainnet", "Chain ID")
-	port := flag.Int("port", 8080, "P2P port")
-	apiPort := flag.Int("api", 3000, "API port")
+	p2pPort := flag.Int("p2p-port", 26656, "CometBFT P2P port")
+	rpcPort := flag.Int("rpc-port", 26657, "CometBFT RPC port")
 	nats := flag.String("nats", "nats://localhost:4222", "NATS URL")
 	flag.Parse()
 
-	// Create and start node with chain configuration
-	genesisNode := node.NewNode(node.NodeConfig{
-		ChainConfig: p2p.ChainConfig{
-			ChainID: *chainID,
-			P2PPort: *port,
-			APIPort: *apiPort,
-		},
-	})
-
-	if err := genesisNode.Start(); err != nil {
-		log.Fatalf("Failed to start node: %v", err)
+	// Create data directory for the chain
+	dataDir := fmt.Sprintf("./data/%s", *chainID)
+	if err := os.MkdirAll(dataDir, 0755); err != nil {
+		log.Fatalf("Failed to create data directory: %v", err)
 	}
 
-	// Initialize chain-specific components
-	core.InitBlockchain(*chainID, mempool.GetMempool(*chainID))
+	// Create CometBFT config
+	config := cfg.DefaultConfig()
+	config.BaseConfig.RootDir = dataDir
+	config.Moniker = *chainID
+	config.P2P.ListenAddress = fmt.Sprintf("tcp://0.0.0.0:%d", *p2pPort)
+	config.RPC.ListenAddress = fmt.Sprintf("tcp://0.0.0.0:%d", *rpcPort)
 
-	// Register this node with the chain
-	chain := core.GetChain(*chainID)
-	addr := fmt.Sprintf("localhost:%d", *port)
-	chain.RegisterNode(addr, genesisNode.GetP2PNode())
+	// Genesis node settings
+	config.P2P.Seeds = "" // No seeds for genesis node
+	config.P2P.PersistentPeers = ""
+
+	genesisNode, err := node.NewNode(config, *chainID)
+	if err != nil {
+		log.Fatalf("Failed to create node: %v", err)
+	}
+
+	err = genesisNode.Start(context.Background())
+	if err != nil {
+		log.Fatalf("Failed to start node: %v", err)
+	}
 
 	// Start NATS messaging
 	core.SetupNATS(*nats)
 	defer core.CloseNATS()
 
-	log.Printf("Chain %s started with P2P port %d and API port %d", *chainID, *port, *apiPort)
+	log.Printf("Genesis node for chain %s started with P2P port %d and RPC port %d",
+		*chainID, *p2pPort, *rpcPort)
 
 	// Start API server
 	router := gin.New()
 	api.SetupRoutes(router, *chainID)
-	log.Fatal(router.Run(fmt.Sprintf(":%d", *apiPort)))
+	log.Fatal(router.Run(fmt.Sprintf(":%d", *rpcPort)))
 }

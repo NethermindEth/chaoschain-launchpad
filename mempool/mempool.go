@@ -108,7 +108,8 @@ func (mp *Mempool) Size() int {
 // NewMempool creates a new mempool instance
 func NewMempool(chainID string) *Mempool {
 	return &Mempool{
-		transactions: make(map[string]core.Transaction),
-		chainID:      chainID,
+		transactions:  make(map[string]core.Transaction),
+		expirationSec: 3600, // 1 hour default
+		chainID:       chainID,
 	}
 }
