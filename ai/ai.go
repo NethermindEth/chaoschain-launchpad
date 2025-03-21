@@ -9,9 +9,11 @@ import (
 	"log"
 	"math/rand"
 	"os"
+	"strconv"
 	"strings"
 
 	"github.com/NethermindEth/chaoschain-launchpad/core"
+	"github.com/ericgreene/go-serp"
 	openai "github.com/sashabaranov/go-openai"
 )
 
@@ -24,6 +26,10 @@ func init() {
 		return
 	}
 	client = openai.NewClient(apiKey)
+
+	if os.Getenv("SERP_API_KEY") == "" {
+		log.Println("Warning: SERP_API_KEY not set, web search will be disabled")
+	}
 }
 
 // Personality represents an AI producer's unique identity
@@ -33,6 +39,52 @@ type Personality struct {
 	Style           string
 	MemePreferences []string
 	APIKey          string // OpenAI API Key for AI-powered decision making
+}
+
+// SearchResult represents a web search result
+type SearchResult struct {
+	Title   string `json:"title"`
+	Snippet string `json:"snippet"`
+	Link    string `json:"link"`
+}
+
+// ResearchDecision represents the LLM's decision about web research
+type ResearchDecision struct {
+	NeedsResearch bool     `json:"needs_research"`
+	SearchQueries []string `json:"search_queries"`
+	Reasoning     string   `json:"reasoning"`
+}
+
+// LLMConfig holds configuration for LLM interactions
+type LLMConfig struct {
+	Model       string
+	MaxTokens   int
+	Temperature float32
+	StopTokens  []string
+}
+
+// SearchConfig holds configuration for web search
+type SearchConfig struct {
+	MaxResults int
+	SafeSearch bool
+}
+
+// DefaultLLMConfig returns standard LLM configuration
+func DefaultLLMConfig() LLMConfig {
+	return LLMConfig{
+		Model:       "gpt-3.5-turbo",
+		MaxTokens:   2048,
+		Temperature: 0.7,
+		StopTokens:  []string{"},]"},
+	}
+}
+
+// DefaultSearchConfig returns standard search configuration
+func DefaultSearchConfig() SearchConfig {
+	return SearchConfig{
+		MaxResults: 5,
+		SafeSearch: true,
+	}
 }
 
 // SelectTransactions uses AI to choose transactions based on chaos & personality
@@ -57,7 +109,6 @@ func (p *Personality) SelectTransactions(txs []core.Transaction) []core.Transact
 	// Use LLM (OpenAI) to get the response
 	response, err := queryLLM(prompt)
 	if err != nil {
-		log.Println("AI selection failed, falling back to random selection:", err)
 		return randomSelection(txs)
 	}
 
@@ -150,37 +201,64 @@ func randomSelection(txs []core.Transaction) []core.Transaction {
 
 // GenerateLLMResponse generates a response using OpenAI's GPT model
 func GenerateLLMResponse(prompt string) string {
+	return generateLLMResponseWithOptions(prompt, false, "", []string{}, DefaultLLMConfig())
+}
+
+// GenerateLLMResponseWithResearch generates a response using OpenAI's GPT model with web research capability
+func GenerateLLMResponseWithResearch(prompt string, topic string, traits []string) string {
+	return generateLLMResponseWithOptions(prompt, true, topic, traits, DefaultLLMConfig())
+}
+
+// generateLLMResponseWithOptions is the internal implementation that handles both research and non-research cases
+func generateLLMResponseWithOptions(prompt string, allowResearch bool, topic string, traits []string, config LLMConfig) string {
 	client := openai.NewClient(os.Getenv("OPENAI_API_KEY"))
+
+	// Only perform research if allowed and needed
+	if allowResearch && strings.Contains(prompt, "Block details:") {
+		decision, err := decideResearch(topic, traits)
+		if err == nil && decision.NeedsResearch {
+			var researchContext strings.Builder
+			researchContext.WriteString("\nRelevant research findings:\n")
+
+			for _, query := range decision.SearchQueries {
+				results, err := performWebSearch(query, DefaultSearchConfig())
+				if err == nil {
+					for _, result := range results {
+						researchContext.WriteString(fmt.Sprintf("- %s\n  %s\n", result.Title, result.Snippet))
+					}
+				}
+			}
+
+			// Add research findings to the prompt
+			prompt = strings.Replace(prompt, "Block details:",
+				researchContext.String()+"\nBlock details:", 1)
+		}
+	}
 
 	resp, err := client.CreateChatCompletion(
 		context.Background(),
 		openai.ChatCompletionRequest{
-			Model: "gpt-3.5-turbo",
+			Model: config.Model,
 			Messages: []openai.ChatCompletionMessage{
 				{
 					Role:    openai.ChatMessageRoleUser,
 					Content: prompt,
 				},
 			},
-			MaxTokens:   2048,
-			Temperature: 0.7,
-			Stop:        []string{"},]"},
+			MaxTokens:   config.MaxTokens,
+			Temperature: config.Temperature,
+			Stop:        config.StopTokens,
 		},
 	)
 
 	if err != nil {
-		log.Printf("ChatCompletion error: %v\n", err)
 		return ""
 	}
 
 	response := resp.Choices[0].Message.Content
-	if !strings.HasSuffix(response, "]") {
-		response += "]"
-	}
 
 	var jsonTest interface{}
 	if err := json.Unmarshal([]byte(response), &jsonTest); err != nil {
-		log.Printf("Invalid JSON response: %v\n", err)
 		return ""
 	}
 
@@ -195,4 +273,65 @@ func (p *Personality) SignBlock(block core.Block) string {
 	// Generate SHA-256 hash as a simple signature
 	hash := sha256.Sum256([]byte(blockData))
 	return hex.EncodeToString(hash[:])
+}
+
+func performWebSearch(query string, config SearchConfig) ([]SearchResult, error) {
+	apiKey := os.Getenv("SERP_API_KEY")
+	if apiKey == "" {
+		return nil, fmt.Errorf("SERP_API_KEY not set")
+	}
+
+	parameter := map[string]string{
+		"q":   query,
+		"key": apiKey,
+		"num": strconv.Itoa(config.MaxResults),
+	}
+	if config.SafeSearch {
+		parameter["safe"] = "active"
+	}
+
+	queryResponse := serp.NewGoogleSearch(parameter)
+	results, err := queryResponse.GetJSON()
+	if err != nil {
+		return nil, err
+	}
+
+	var searchResults []SearchResult
+	for _, result := range results.OrganicResults {
+		searchResults = append(searchResults, SearchResult{
+			Title:   result.Title,
+			Snippet: result.Snippet,
+			Link:    result.Link,
+		})
+	}
+
+	return searchResults, nil
+}
+
+func decideResearch(topic string, traits []string) (*ResearchDecision, error) {
+	prompt := fmt.Sprintf(`You are an AI agent with these traits: %v
+	
+	You need to analyze this topic: "%s"
+	
+	Decide if you need to perform web research to contribute meaningfully to the discussion.
+	Consider:
+	1. Is this within your area of expertise?
+	2. Would recent information help your analysis?
+	3. Are there specific facts you need to verify?
+	
+	Return a JSON object with:
+	{
+		"needs_research": boolean,
+		"search_queries": ["query1", "query2"],  // 1-3 specific search queries if needed
+		"reasoning": "Explain why you do or don't need research"
+	}`, traits, topic)
+
+	response := GenerateLLMResponse(prompt)
+
+	var decision ResearchDecision
+	if err := json.Unmarshal([]byte(response), &decision); err != nil {
+		return nil, err
+	}
+
+	return &decision, nil
 }

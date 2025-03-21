@@ -126,50 +126,55 @@ func StartBlockDiscussion(validatorID string, block *core.Block, traits []string
 		previousDiscussions := consensus.GetDiscussionContext(round)
 
 		// Generate discussion for this round
-		prompt := fmt.Sprintf(`You are %s, a blockchainvalidator with the following traits: %v.
+		prompt := fmt.Sprintf(`You are %s, with these traits: %v.
 
-		Block details:
-		- Height: %d
-		- Transactions/statement of topic: %s
-
-		Note: In the previous discussions above, you can see all the validators who have commented. 
-		IMPORTANT FORMAT: When referencing any validator, you MUST use the exact format: |@Name|
-		The pipes (|) are required at the start and end of EVERY mention.
-		When referencing another validator, always use the @ symbol and enclose the name in pipes (e.g., "|@Marie Curie| agrees with my analysis").
-		INCORRECT: "@Marie Curie agrees" (missing pipes)
-		CORRECT: "|@Marie Curie| agrees"
-		Never mention validators that haven't participated in the discussion.
-		In the first round, since there are no previous discussions, focus on your own analysis.
-
-		Previous discussions:
+		You're participating in a group discussion about this topic:
 		%s
 
-		Discussion Round %d/%d:
-		Analyze the statement of the topic by considering:
-		1. The exact wording of the statement.
-		2. If there are previous discussions, consider those viewpoints and reference specific validators 
-		   only if they have actually participated. Always use the format |@Name| when mentioning them.
-		3. Your personal reaction based on your personality and analysis.
-		4. If others have commented, you may build upon or challenge their arguments using their exact names.
-		   For example: "|@Einstein| makes a valid point about..." or "I disagree with |@Newton|'s analysis because..."
-		   Remember: Every validator mention must be enclosed in pipes with @ symbol.
-		   If you're first to comment, focus on your direct analysis of the statement.
+		Context:
+		Block details:
+		- Height: %d
+		Previous conversation:
+		%s
+
+		This is round %d of %d.
+
+		IMPORTANT FORMAT: When referencing any validator, you MUST use the exact format: |@Name|
+		The pipes (|) are required at the start and end of EVERY mention.
+
+		Share your thoughts naturally, as if you're in a real conversation. If you've done any research, incorporate 
+		it smoothly into your discussion without explicitly mentioning that you did research. When referring to others 
+		in the conversation, use their names with the format |@Name| (e.g., "I see what |@Marie Curie| means about...").
+		
+		If you're the first to speak, just give your honest thoughts about the topic. If others have spoken, feel free 
+		to build on or challenge their ideas - just be yourself and express your views based on your personality traits.
 
 		Based on your analysis, you need to provide
 		1. An opinion on the topic statement.
 		2. A stance on the topic statement (SUPPORT, OPPOSE, or QUESTION).
 		3. A reason for your stance (reference other validators only if they've already participated).
 
+        Analyze the statement of the topic by considering:
+        1. The exact wording of the statement.
+        2. If there are previous discussions, consider those viewpoints and reference specific validators 
+           only if they have actually participated. Always use the format |@Name| when mentioning them.
+        3. Your personal reaction based on your personality and analysis.
+        4. If others have commented, you may build upon or challenge their arguments using their exact names.
+           For example: "|@Einstein| makes a valid point about..." or "I disagree with |@Newton|'s analysis because..."
+           Remember: Every validator mention must be enclosed in pipes with @ symbol.
+           If you're first to comment, focus on your direct analysis of the statement.
+
 		Important: Your analysis must be fully consistent. This means:
 		- If you agree with the statement and think the statement is true, your "stance" must be "SUPPORT".
 		- If you disagree with the statement and think the statement is false, your "stance" must be "OPPOSE".
 		- If you are unsure, then use "QUESTION".
+
 		Additionally:
-		- Ensure your "opinion", "stance", and "reason" all clearly align.
-		- Mentioning other validators is optional and should only be done if they have already participated.
-		- When referencing another validator, you MUST use the format |@Name| - the pipes are required.
-		- Never invent or mention validators that aren't shown in the previous discussions.
-		- Indicate whether you agree or disagree with specific points made by others.
+        - Ensure your "opinion", "stance", and "reason" all clearly align.
+        - Mentioning other validators is optional and should only be done if they have already participated.
+        - When referencing another validator, you MUST use the format |@Name| - the pipes are required.
+        - Never invent or mention validators that aren't shown in the previous discussions.
+        - Indicate whether you agree or disagree with specific points made by others.
 
 		Please respond with exactly a JSON object with the following keys:
 		{
@@ -178,32 +183,17 @@ func StartBlockDiscussion(validatorID string, block *core.Block, traits []string
 		}
 		Both fields are mandatory. Your response MUST include both a stance and a reason.
 		Do not include any additional text or formatting.`,
-			name, traits, block.Height, strings.Join(txContents, "\n"), previousDiscussions, round, DiscussionRounds)
+			name, traits, strings.Join(txContents, "\n"), block.Height, previousDiscussions, round, DiscussionRounds)
 
-		response := ai.GenerateLLMResponse(prompt)
+		response := ai.GenerateLLMResponseWithResearch(prompt, strings.Join(txContents, "\n"), traits)
 
 		var llmResult LLMResponse
 		if err := json.Unmarshal([]byte(response), &llmResult); err != nil {
 			fmt.Println("Error parsing LLM response:", err)
 		}
 
-		var stance string
-		if strings.Contains(response, `"stance": "support"`) ||
-			strings.Contains(response, `"stance":"support"`) {
-			stance = "support"
-		} else if strings.Contains(response, `"stance": "oppose"`) ||
-			strings.Contains(response, `"stance":"oppose"`) {
-			stance = "oppose"
-		} else if strings.Contains(response, `"stance": "question"`) ||
-			strings.Contains(response, `"stance":"question"`) {
-			stance = "question"
-		} else {
-			// Default to question if no stance is detected
-			stance = "question"
-		}
-
 		// Add to discussion
-		consensus.AddDiscussion(validatorID, name, llmResult.Opinion+" "+llmResult.Reason, stance, round)
+		consensus.AddDiscussion(validatorID, name, llmResult.Opinion+" "+llmResult.Reason, llmResult.Stance, round)
 
 		// Get the last added discussion to access its ID
 		discussions := consensus.GetDiscussions()
@@ -215,7 +205,7 @@ func StartBlockDiscussion(validatorID string, block *core.Block, traits []string
 			ValidatorID:   validatorID,
 			ValidatorName: name,
 			Message:       llmResult.Opinion + " " + llmResult.Reason,
-			Type:          stance,
+			Type:          strings.ToLower(llmResult.Stance),
 			Round:         round,
 			Timestamp:     time.Now(),
 		}

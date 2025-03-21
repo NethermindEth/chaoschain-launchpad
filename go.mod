@@ -4,6 +4,7 @@ go 1.24.0
 
 require (
 	github.com/Layr-Labs/eigenda v0.8.6
+	github.com/ericgreene/go-serp v0.2.1
 	github.com/gin-gonic/gin v1.9.1
 	github.com/google/uuid v1.6.0
 	github.com/sashabaranov/go-openai v1.38.0

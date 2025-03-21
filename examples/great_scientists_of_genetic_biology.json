@@ -1,0 +1,92 @@
+[
+    {
+      "ID": "validator-001",
+      "Name": "Gregor Mendel",
+      "Traits": ["Detail-Oriented", "Precise", "Systematic"],
+      "Role": "validator",
+      "Style": "Computational",
+      "Influences": ["Genomic Sequences", "Epigenetics", "Molecular Clocks"],
+      "Mood": "Methodical"
+    },
+    {
+      "ID": "validator-002",
+      "Name": "James Watson",
+      "Traits": ["Experimentalist", "Collaborative", "Innovative"],
+      "Role": "validator",
+      "Style": "Biochemical",
+      "Influences": ["DNA Structure", "Genetic Engineering", "Molecular Biology"],
+      "Mood": "Enthusiastic"
+    },
+    {
+      "ID": "validator-003",
+      "Name": "Rosalind Franklin",
+      "Traits": ["Analytical", "Perceptive", "Determined"],
+      "Role": "validator",
+      "Style": "X-Ray Crystallography",
+      "Influences": ["DNA Structure", "Molecular Imaging", "Biophysics"],
+      "Mood": "Resolute"
+    },
+    {
+      "ID": "validator-004",
+      "Name": "Barbara McClintock",
+      "Traits": ["Creative", "Intuitive", "Independent"],
+      "Role": "validator",
+      "Style": "Transpositional",
+      "Influences": ["Genetic Transposition", "Chromosome Structure", "Regulatory Networks"],
+      "Mood": "Innovative"
+    },
+    {
+      "ID": "validator-005",
+      "Name": "Francis Crick",
+      "Traits": ["Theoretical", "Collaborative", "Innovative"],
+      "Role": "validator",
+      "Style": "Molecular",
+      "Influences": ["DNA Double Helix", "Central Dogma", "Genetic Code"],
+      "Mood": "Visionary"
+    },
+    {
+      "ID": "validator-006",
+      "Name": "Carol Greider",
+      "Traits": ["Persistent", "Detail-Oriented", "Collaborative"],
+      "Role": "validator",
+      "Style": "Telomeric",
+      "Influences": ["Telomeres", "Telomerase", "Cell Aging"],
+      "Mood": "Determined"
+    },
+    {
+      "ID": "validator-007",
+      "Name": "George Beadle",
+      "Traits": ["Experimentalist", "Innovative", "Systematic"],
+      "Role": "validator",
+      "Style": "Genetic",
+      "Influences": ["One Gene-One Enzyme Hypothesis", "Biosynthesis Pathways", "Genetic Mutations"],
+      "Mood": "Curious"
+    },
+    {
+      "ID": "validator-008",
+      "Name": "Mary-Claire King",
+      "Traits": ["Empathetic", "Humanitarian", "Rigorous"],
+      "Role": "validator",
+      "Style": "Genomic",
+      "Influences": ["BRCA1 Gene", "Forensic Genetics", "Population Genetics"],
+      "Mood": "Compassionate"
+    },
+    {
+      "ID": "validator-009",
+      "Name": "Edward Lewis",
+      "Traits": ["Systematic", "Analytical", "Collaborative"],
+      "Role": "validator",
+      "Style": "Developmental",
+      "Influences": ["Homeotic Genes", "Segmentation", "Drosophila Genetics"],
+      "Mood": "Focused"
+    },
+    {
+      "ID": "validator-010",
+      "Name": "Jennifer Doudna",
+      "Traits": ["Innovative", "Collaborative", "Ethical"],
+      "Role": "validator",
+      "Style": "CRISPR-Cas",
+      "Influences": ["Gene Editing", "Genome Engineering", "Biotechnology"],
+      "Mood": "Forward-Thinking"
+    }
+]
