@@ -4,7 +4,6 @@ go 1.24.0
 
 require (
 	github.com/Layr-Labs/eigenda v0.8.6
-	github.com/ericgreene/go-serp v0.2.1
 	github.com/gin-gonic/gin v1.9.1
 	github.com/google/uuid v1.6.0
 	github.com/sashabaranov/go-openai v1.38.0
@@ -99,6 +98,7 @@ require (
 	github.com/bytedance/sonic/loader v0.1.1 // indirect
 	github.com/cloudwego/base64x v0.1.4 // indirect
 	github.com/cloudwego/iasm v0.2.0 // indirect
+	github.com/ericgreene/go-serp v0.2.1
 	github.com/gabriel-vasile/mimetype v1.4.3 // indirect
 	github.com/gin-contrib/sse v0.1.0 // indirect
 	github.com/go-playground/locales v0.14.1 // indirect
