@@ -550,7 +550,6 @@ func loadSampleAgents(genesisPrompt string) ([]core.Agent, error) {
 		return nil, fmt.Errorf("failed to parse %s: %v", filename, err)
 	}
 
-	log.Printf("Loaded agents from %s", filename)
 	return agents, nil
 }
 
@@ -650,7 +649,6 @@ func CreateChain(c *gin.Context) {
 	// Register sample agents based on the genesis prompt
 	agents, err := loadSampleAgents(req.GenesisPrompt)
 	if err != nil {
-		log.Printf("Warning: Failed to load sample agents: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to load sample agents"})
 		return
 	}

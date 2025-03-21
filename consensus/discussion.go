@@ -109,7 +109,6 @@ func StartBlockDiscussion(validatorID string, block *core.Block, traits []string
 	for _, d := range consensus.GetDiscussions() {
 		if d.Round == DiscussionRounds+1 && d.ValidatorID == validatorID {
 			// This validator has already cast their final vote
-			fmt.Printf("Validator %s has already cast their final vote, skipping\n", validatorID)
 			return
 		}
 	}
@@ -200,7 +199,6 @@ func StartBlockDiscussion(validatorID string, block *core.Block, traits []string
 			stance = "question"
 		} else {
 			// Default to question if no stance is detected
-			fmt.Printf("No stance detected in response, defaulting to question for validator %s\n", validatorID)
 			stance = "question"
 		}
 
