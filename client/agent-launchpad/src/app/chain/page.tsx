@@ -5,6 +5,7 @@ import Link from "next/link";
 import { createChain, listChains } from '@/services/api';
 import type { Chain } from '@/services/api';
 import { useRouter } from 'next/navigation';
+import { InitializationModal } from '@/components/InitializationModal';
 
 // Reusable Tabs component
 interface TabItem {
@@ -47,12 +48,14 @@ const AVAILABLE_CHAINS = [
 ];
 
 export default function GenesisPage() {
-  const [chainName, setChainName] = useState("");
   const [activeTab, setActiveTab] = useState("create");
+  const [chainName, setChainName] = useState("");
+  const [genesisPrompt, setGenesisPrompt] = useState("");
   const [availableChains, setAvailableChains] = useState<Chain[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const router = useRouter();
+  const [isModalOpen, setIsModalOpen] = useState(false);
 
   const chainTabs = [
     { id: "create", label: "Create New Chain" },
@@ -80,20 +83,22 @@ export default function GenesisPage() {
 
   const handleCreateChain = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
+    setIsModalOpen(true);
     
     try {
       const data = await createChain({
         chain_id: chainName.toLowerCase().replace(/\s+/g, '-'),
+        genesis_prompt: genesisPrompt,
       });
       console.log('Chain created successfully:', data);
 
       setChainName('');
-      // Switch to join tab and fetch chains
-      setActiveTab('join');
+      setGenesisPrompt('');
       
     } catch (error) {
       console.error('Error creating chain:', error);
       alert(error instanceof Error ? error.message : 'Failed to create chain');
+      setIsModalOpen(false);
     }
   };
 
@@ -142,12 +147,27 @@ export default function GenesisPage() {
                   required
                 />
               </div>
+
+              <div className="mb-6">
+                <label htmlFor="chainName" className="block text-sm font-medium mb-2">
+                  Genesis Prompt
+                </label>
+                <input
+                  type="text"
+                  id="genesisPrompt"
+                  value={genesisPrompt}
+                  onChange={(e) => setGenesisPrompt(e.target.value)}
+                  className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-[#fe6a23] focus:border-transparent"
+                  placeholder="Give a description for the genesis node of the chain"
+                  required
+                />
+              </div>
               
               <button
                 type="submit"
                 className="w-full bg-gradient-to-r from-[#fd7653] to-[#feb082] text-white font-medium px-8 py-3 rounded-2xl hover:shadow-lg shadow-md transition-all duration-300 transform hover:-translate-y-0.5"
               >
-                Create Genesis Block
+                Intialize Chaoschain
               </button>
             </form>
           </div>
@@ -193,6 +213,12 @@ export default function GenesisPage() {
           </div>
         )}
       </div>
+      <InitializationModal 
+        isOpen={isModalOpen}
+        onClose={() => setIsModalOpen(false)}
+        chainId={chainName.toLowerCase().replace(/\s+/g, '-')}
+        totalAgents={10}
+      />
     </div>
   );
 }

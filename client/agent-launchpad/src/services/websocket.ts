@@ -2,27 +2,62 @@ type WebSocketCallback = (event: any) => void;
 
 class WebSocketService {
     private ws: WebSocket | null = null;
-    private subscribers: { [eventType: string]: WebSocketCallback[] } = {};
+    private subscribers: Map<string, Set<Function>> = new Map();
+    private reconnectAttempts = 0;
+    private maxReconnectAttempts = 5;
 
     connect() {
-        this.ws = new WebSocket('ws://localhost:3000/ws');
+        if (this.ws?.readyState === WebSocket.OPEN) {
+            return; // Already connected
+        }
         
+        this.ws = new WebSocket(process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:3000/ws');
+        
+        this.ws.onopen = () => {
+            console.log('WebSocket connected');
+            this.reconnectAttempts = 0;
+        };
+
+        this.ws.onerror = (error) => {
+            console.error('WebSocket error:', error);
+        };
+
         this.ws.onmessage = (event) => {
-            const data = JSON.parse(event.data);
-            const callbacks = this.subscribers[data.type] || [];
-            callbacks.forEach(callback => callback(data.payload));
+            try {
+                const data = JSON.parse(event.data);
+                console.log('WebSocket message received:', data);
+                const subscribers = this.subscribers.get(data.type);
+                subscribers?.forEach(callback => callback(data.payload));
+            } catch (error) {
+                console.error('Error processing WebSocket message:', error);
+            }
+        };
+
+        this.ws.onclose = () => {
+            if (this.reconnectAttempts < this.maxReconnectAttempts) {
+                this.reconnectAttempts++;
+                setTimeout(() => this.connect(), 1000 * this.reconnectAttempts);
+            }
         };
     }
 
-    subscribe(eventType: string, callback: WebSocketCallback) {
-        if (!this.subscribers[eventType]) {
-            this.subscribers[eventType] = [];
+    disconnect() {
+        if (this.ws) {
+            this.ws.close();
+            this.ws = null;
+            this.reconnectAttempts = 0;
         }
-        this.subscribers[eventType].push(callback);
+    }
+
+    subscribe(eventType: string, callback: WebSocketCallback) {
+        if (!this.subscribers.has(eventType)) {
+            this.subscribers.set(eventType, new Set());
+        }
+        this.subscribers.get(eventType)?.add(callback);
     }
 
     unsubscribe(eventType: string, callback: WebSocketCallback) {
-        this.subscribers[eventType] = this.subscribers[eventType]?.filter(cb => cb !== callback) || [];
+        this.subscribers.get(eventType)?.delete(callback);
     }
 }
 

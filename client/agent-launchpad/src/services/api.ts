@@ -18,6 +18,7 @@ interface RegisterAgentResponse {
 
 interface CreateChainParams {
     chain_id: string;
+    genesis_prompt: string;
 }
 
 interface CreateChainResponse {

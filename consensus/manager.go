@@ -144,8 +144,17 @@ func (cm *ConsensusManager) runConsensusProcess() {
 	// Count votes
 	support := 0
 	oppose := 0
+	// Track which validators have voted to prevent duplicates
+	votedValidators := make(map[string]bool)
+
 	for _, d := range consensus.Discussions {
 		if d.Round == DiscussionRounds+1 { // Only count final votes
+			// Skip if we've already counted this validator's vote
+			if votedValidators[d.ValidatorID] {
+				continue
+			}
+			votedValidators[d.ValidatorID] = true
+
 			if strings.ToLower(d.Type) == "support" {
 				support++
 			} else if strings.ToLower(d.Type) == "oppose" {
