@@ -22,12 +22,13 @@ type LLMResponse struct {
 
 // Discussion represents a discussion message from a validator.
 type Discussion struct {
-	ID          string    `json:"id"` // Unique identifier for the discussion
-	ValidatorID string    `json:"validatorId"`
-	Message     string    `json:"message"`
-	Timestamp   time.Time `json:"timestamp"`
-	Type        string    `json:"type"`  // "comment", "support", "oppose", "question"
-	Round       int       `json:"round"` // Which discussion round (1-5)
+	ID            string    `json:"id"` // Unique identifier for the discussion
+	ValidatorID   string    `json:"validatorId"`
+	ValidatorName string    `json:"validatorName"`
+	Message       string    `json:"message"`
+	Timestamp     time.Time `json:"timestamp"`
+	Type          string    `json:"type"`  // "comment", "support", "oppose", "question"
+	Round         int       `json:"round"` // Which discussion round (1-5)
 }
 
 const (
@@ -42,7 +43,7 @@ type BlockOpinion struct {
 }
 
 // AddDiscussion adds a new discussion point about a block
-func (bc *BlockConsensus) AddDiscussion(validatorID, message, discussionType string, round int) {
+func (bc *BlockConsensus) AddDiscussion(validatorID, validatorName, message, discussionType string, round int) {
 	bc.mu.Lock()
 	defer bc.mu.Unlock()
 
@@ -50,12 +51,13 @@ func (bc *BlockConsensus) AddDiscussion(validatorID, message, discussionType str
 	discussionID := uuid.New().String()
 
 	discussion := Discussion{
-		ID:          discussionID,
-		ValidatorID: validatorID,
-		Message:     message,
-		Timestamp:   time.Now(),
-		Type:        discussionType,
-		Round:       round,
+		ID:            discussionID,
+		ValidatorID:   validatorID,
+		ValidatorName: validatorName,
+		Message:       message,
+		Timestamp:     time.Now(),
+		Type:          discussionType,
+		Round:         round,
 	}
 
 	bc.Discussions = append(bc.Discussions, discussion)
@@ -86,7 +88,7 @@ func (bc *BlockConsensus) GetDiscussionContext(currentRound int) string {
 		context.WriteString(fmt.Sprintf("Round %d:\n", round))
 		for _, d := range bc.Discussions {
 			if d.Round == round {
-				context.WriteString(fmt.Sprintf("- %s: %s\n", d.ValidatorID, d.Message))
+				context.WriteString(fmt.Sprintf("- %s (|@%s|): %s\n", d.ValidatorName, d.ValidatorName, d.Message))
 			}
 		}
 		context.WriteString("\n")
@@ -103,7 +105,16 @@ func StartBlockDiscussion(validatorID string, block *core.Block, traits []string
 		return
 	}
 
-	// // Format transactions for analysis
+	// Check if this validator has already voted in the final round
+	for _, d := range consensus.GetDiscussions() {
+		if d.Round == DiscussionRounds+1 && d.ValidatorID == validatorID {
+			// This validator has already cast their final vote
+			fmt.Printf("Validator %s has already cast their final vote, skipping\n", validatorID)
+			return
+		}
+	}
+
+	// Format transactions for analysis
 	var txContents []string
 	for _, tx := range block.Txs {
 		txContents = append(txContents, fmt.Sprintf("Content: %s",
@@ -122,33 +133,51 @@ func StartBlockDiscussion(validatorID string, block *core.Block, traits []string
 		- Height: %d
 		- Transactions/statement of topic: %s
 
+		Note: In the previous discussions above, you can see all the validators who have commented. 
+		IMPORTANT FORMAT: When referencing any validator, you MUST use the exact format: |@Name|
+		The pipes (|) are required at the start and end of EVERY mention.
+		When referencing another validator, always use the @ symbol and enclose the name in pipes (e.g., "|@Marie Curie| agrees with my analysis").
+		INCORRECT: "@Marie Curie agrees" (missing pipes)
+		CORRECT: "|@Marie Curie| agrees"
+		Never mention validators that haven't participated in the discussion.
+		In the first round, since there are no previous discussions, focus on your own analysis.
+
 		Previous discussions:
 		%s
 
 		Discussion Round %d/%d:
 		Analyze the statement of the topic by considering:
 		1. The exact wording of the statement.
-		2. The viewpoints expressed by other validators in previous discussions.
+		2. If there are previous discussions, consider those viewpoints and reference specific validators 
+		   only if they have actually participated. Always use the format |@Name| when mentioning them.
 		3. Your personal reaction based on your personality and analysis.
-		4. Insights from previous discussions.
+		4. If others have commented, you may build upon or challenge their arguments using their exact names.
+		   For example: "|@Einstein| makes a valid point about..." or "I disagree with |@Newton|'s analysis because..."
+		   Remember: Every validator mention must be enclosed in pipes with @ symbol.
+		   If you're first to comment, focus on your direct analysis of the statement.
 
 		Based on your analysis, you need to provide
 		1. An opinion on the topic statement.
 		2. A stance on the topic statement (SUPPORT, OPPOSE, or QUESTION).
-		3. A reason for your stance.
+		3. A reason for your stance (reference other validators only if they've already participated).
 
 		Important: Your analysis must be fully consistent. This means:
 		- If you agree with the statement and think the statement is true, your "stance" must be "SUPPORT".
 		- If you disagree with the statement and think the statement is false, your "stance" must be "OPPOSE".
 		- If you are unsure, then use "QUESTION".
-		Additionally, ensure that your "opinion", "stance", and "reason" all clearly align. For example, if your opinion and reason indicate that the statement is false, then your stance must be "OPPOSE".
+		Additionally:
+		- Ensure your "opinion", "stance", and "reason" all clearly align.
+		- Mentioning other validators is optional and should only be done if they have already participated.
+		- When referencing another validator, you MUST use the format |@Name| - the pipes are required.
+		- Never invent or mention validators that aren't shown in the previous discussions.
+		- Indicate whether you agree or disagree with specific points made by others.
 
 		Please respond with exactly a JSON object with the following keys:
 		{
-		"opinion": "A one-sentence opinion summarizing your analysis of the topic statement.",
-		"stance": "Either SUPPORT, OPPOSE, or QUESTION",
-		"reason": "A brief explanation for your stance, referencing specific evidence or points from the discussions."
+		"stance": "REQUIRED: Must be exactly one of: SUPPORT, OPPOSE, or QUESTION - this field is mandatory",
+		"reason": "REQUIRED: Must provide a brief explanation of your stance (use @ when mentioning other validators, e.g., '|@Alice| disagrees...')"
 		}
+		Both fields are mandatory. Your response MUST include both a stance and a reason.
 		Do not include any additional text or formatting.`,
 			name, traits, block.Height, strings.Join(txContents, "\n"), previousDiscussions, round, DiscussionRounds)
 
@@ -159,8 +188,24 @@ func StartBlockDiscussion(validatorID string, block *core.Block, traits []string
 			fmt.Println("Error parsing LLM response:", err)
 		}
 
+		var stance string
+		if strings.Contains(response, `"stance": "support"`) ||
+			strings.Contains(response, `"stance":"support"`) {
+			stance = "support"
+		} else if strings.Contains(response, `"stance": "oppose"`) ||
+			strings.Contains(response, `"stance":"oppose"`) {
+			stance = "oppose"
+		} else if strings.Contains(response, `"stance": "question"`) ||
+			strings.Contains(response, `"stance":"question"`) {
+			stance = "question"
+		} else {
+			// Default to question if no stance is detected
+			fmt.Printf("No stance detected in response, defaulting to question for validator %s\n", validatorID)
+			stance = "question"
+		}
+
 		// Add to discussion
-		consensus.AddDiscussion(validatorID, llmResult.Opinion+" "+llmResult.Reason, llmResult.Stance, round)
+		consensus.AddDiscussion(validatorID, name, llmResult.Opinion+" "+llmResult.Reason, stance, round)
 
 		// Get the last added discussion to access its ID
 		discussions := consensus.GetDiscussions()
@@ -168,19 +213,20 @@ func StartBlockDiscussion(validatorID string, block *core.Block, traits []string
 
 		// Broadcast via WebSocket
 		discussion := Discussion{
-			ID:          lastDiscussion.ID,
-			ValidatorID: validatorID,
-			Message:     llmResult.Opinion + " " + llmResult.Reason,
-			Type:        llmResult.Stance,
-			Round:       round,
-			Timestamp:   time.Now(),
+			ID:            lastDiscussion.ID,
+			ValidatorID:   validatorID,
+			ValidatorName: name,
+			Message:       llmResult.Opinion + " " + llmResult.Reason,
+			Type:          stance,
+			Round:         round,
+			Timestamp:     time.Now(),
 		}
 
 		discussionData, err := json.Marshal(discussion)
 
 		// Also keep WebSocket broadcast for UI updates
 		communication.BroadcastEvent(communication.EventAgentVote, discussion)
-		
+
 		if err != nil {
 			fmt.Println("Error marshalling discussion for NATS:", err)
 		} else {
@@ -204,9 +250,10 @@ func StartBlockDiscussion(validatorID string, block *core.Block, traits []string
 
 	Please respond with exactly a JSON object with the following keys:
 	{
-	"stance": "Either SUPPORT, OPPOSE — must be consistent with your analysis.",
-	"reason": "A brief explanation stating why, referencing specific evidence from the discussions."
+	"stance": "REQUIRED: Must be exactly SUPPORT or OPPOSE - no other values allowed",
+	"reason": "REQUIRED: Must provide your explanation with evidence from the discussions"
 	}
+	Both fields are mandatory. Responses without both fields will be rejected.
 	Do not include any additional text or formatting.`,
 		name, txContents, consensus.GetDiscussionContext(DiscussionRounds+1))
 
@@ -229,19 +276,20 @@ func StartBlockDiscussion(validatorID string, block *core.Block, traits []string
 	}
 
 	// Record final vote
-	consensus.AddDiscussion(validatorID, finalResponse, voteType, DiscussionRounds+1)
+	consensus.AddDiscussion(validatorID, name, finalResponse, voteType, DiscussionRounds+1)
 
 	// Get the last added discussion to access its ID
 	discussions := consensus.GetDiscussions()
 	lastDiscussion := discussions[len(discussions)-1]
 
 	vote := Discussion{
-		ID:          lastDiscussion.ID,
-		ValidatorID: validatorID,
-		Message:     finalResponse,
-		Type:        voteType,
-		Round:       DiscussionRounds + 1,
-		Timestamp:   time.Now(),
+		ID:            lastDiscussion.ID,
+		ValidatorID:   validatorID,
+		ValidatorName: name,
+		Message:       finalResponse,
+		Type:          voteType,
+		Round:         DiscussionRounds + 1,
+		Timestamp:     time.Now(),
 	}
 
 	// Also keep WebSocket broadcast for UI updates

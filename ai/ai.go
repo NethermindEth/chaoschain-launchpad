@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"log"
 	"math/rand"
@@ -149,43 +150,41 @@ func randomSelection(txs []core.Transaction) []core.Transaction {
 
 // GenerateLLMResponse generates a response using OpenAI's GPT model
 func GenerateLLMResponse(prompt string) string {
-	if client == nil {
-		log.Println("Warning: OpenAI client not initialized, using mock responses")
-		return mockResponse(prompt)
-	}
+	client := openai.NewClient(os.Getenv("OPENAI_API_KEY"))
 
 	resp, err := client.CreateChatCompletion(
 		context.Background(),
 		openai.ChatCompletionRequest{
-			Model: openai.GPT3Dot5Turbo,
+			Model: "gpt-3.5-turbo",
 			Messages: []openai.ChatCompletionMessage{
-				// {
-				// 	Role:    openai.ChatMessageRoleSystem,
-				// 	Content: "You are a chaotic blockchain validator with strong opinions. Be concise but creative.",
-				// },
 				{
 					Role:    openai.ChatMessageRoleUser,
 					Content: prompt,
 				},
 			},
-			MaxTokens: 150,
+			MaxTokens:   2048,
+			Temperature: 0.7,
+			Stop:        []string{"},]"},
 		},
 	)
 
 	if err != nil {
-		log.Printf("OpenAI API error: %v", err)
-		return mockResponse(prompt)
+		log.Printf("ChatCompletion error: %v\n", err)
+		return ""
 	}
 
-	return resp.Choices[0].Message.Content
-}
-
-// mockResponse provides fallback responses when API is unavailable
-func mockResponse(prompt string) string {
-	if strings.Contains(prompt, "analyze this block") {
-		return "SUPPORT: This block looks fascinating! The transaction patterns show a healthy mix of chaos and order."
+	response := resp.Choices[0].Message.Content
+	if !strings.HasSuffix(response, "]") {
+		response += "]"
 	}
-	return "QUESTION: I need more time to contemplate the cosmic implications of this block."
+
+	var jsonTest interface{}
+	if err := json.Unmarshal([]byte(response), &jsonTest); err != nil {
+		log.Printf("Invalid JSON response: %v\n", err)
+		return ""
+	}
+
+	return response
 }
 
 // SignBlock generates a cryptographic hash signature for a block

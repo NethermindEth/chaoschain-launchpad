@@ -19,6 +19,7 @@ const (
 	EventAgentAlliance   = "AGENT_ALLIANCE"
 	EventAgentRegistered = "AGENT_REGISTERED"
 	EventNewTransaction  = "NEW_TRANSACTION"
+	EventChainCreated    = "CHAIN_CREATED"
 )
 
 type WebSocketManager struct {
