@@ -3,7 +3,6 @@ package handlers
 import (
 	"context"
 	"fmt"
-	"log"
 	"net/http"
 	"os"
 	"os/exec"
@@ -206,9 +205,7 @@ func GetBlock(c *gin.Context) {
 
 // GetNetworkStatus - Returns the current status of ChaosChain
 func GetNetworkStatus(c *gin.Context) {
-	chainID := c.GetString("chainID")
-
-	log.Println("chainID", chainID)
+	_ = c.GetString("chainID")
 
 	client, err := rpchttp.New("tcp://localhost:26657", "/websocket")
 	if err != nil {
