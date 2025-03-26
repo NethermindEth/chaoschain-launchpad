@@ -201,39 +201,7 @@ func randomSelection(txs []core.Transaction) []core.Transaction {
 
 // GenerateLLMResponse generates a response using OpenAI's GPT model
 func GenerateLLMResponse(prompt string) string {
-	if client == nil {
-		log.Printf("Error: OpenAI client not initialized. Check OPENAI_API_KEY environment variable")
-		return ""
-	}
-
-	resp, err := client.CreateChatCompletion(
-		context.Background(),
-		openai.ChatCompletionRequest{
-			Model: openai.GPT3Dot5Turbo,
-			Messages: []openai.ChatCompletionMessage{
-				{
-					Role:    openai.ChatMessageRoleUser,
-					Content: prompt,
-				},
-			},
-			MaxTokens:   2048,
-			Temperature: 0.7,
-		},
-	)
-
-	if err != nil {
-		log.Printf("OpenAI API error: %v", err)
-		return ""
-	}
-
-	if len(resp.Choices) == 0 {
-		log.Printf("OpenAI API returned no choices")
-		return ""
-	}
-
-	response := resp.Choices[0].Message.Content
-	log.Printf("OpenAI response length: %d", len(response))
-	return response
+	return generateLLMResponseWithOptions(prompt, false, "", []string{}, DefaultLLMConfig())
 }
 
 // GenerateLLMResponseWithResearch generates a response using OpenAI's GPT model with web research capability
@@ -289,6 +257,7 @@ func generateLLMResponseWithOptions(prompt string, allowResearch bool, topic str
 
 	response := resp.Choices[0].Message.Content
 
+	// Validate it's proper JSON
 	var jsonTest interface{}
 	if err := json.Unmarshal([]byte(response), &jsonTest); err != nil {
 		return ""

@@ -304,7 +304,7 @@ export default function ThreadDetailPage() {
         {/* Add Insights Panel */}
         {blockVerdict && (
           <div className="mt-8 bg-gray-800 p-6 rounded-lg">
-            <h2 className="text-2xl font-bold mb-4">Discussion Analysis</h2>
+            <h2 className="text-2xl font-bold mb-4">Insights</h2>
             <InsightsPanel chainId={chainId} />
           </div>
         )}
