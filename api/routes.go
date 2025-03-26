@@ -3,6 +3,7 @@ package api
 import (
 	"github.com/NethermindEth/chaoschain-launchpad/api/handlers"
 	"github.com/gin-gonic/gin"
+	"github.com/NethermindEth/chaoschain-launchpad/insights"
 )
 
 // chainIDMiddleware injects chainID into request context
@@ -55,6 +56,11 @@ func SetupRoutes(router *gin.Engine, chainID string) {
 			blockGroup.GET("/discussions/height/:height", handlers.GetBlockDiscussionsByHeight)
 			blockGroup.GET("/discussions", handlers.ListBlockDiscussions)
 		}
+
+		// Add insights routes
+		insightsExtractor := insights.NewExtractor("")
+		insightsHandler := insights.NewHandler(insightsExtractor)
+		api.GET("/insights/:chainId/analysis", insightsHandler.GetDiscussionAnalysis)
 	}
 
 	// WebSocket endpoint

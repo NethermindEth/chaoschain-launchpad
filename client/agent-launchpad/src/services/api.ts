@@ -56,6 +56,25 @@ interface Transaction {
     timestamp: number;
 }
 
+interface DiscussionContext {
+    context: string;
+    analysis: string;
+    round: number;
+    lastUpdated: string;
+}
+
+export interface InsightSummary {
+    commonTopics: string[];
+    sentiment: string;
+    keyPoints: string[];
+    participationLevel: string;
+}
+
+interface DiscussionAnalysis {
+    analysis: string;
+    lastUpdated: string;
+}
+
 export class ApiError extends Error {
     constructor(
         message: string,
@@ -204,4 +223,28 @@ export async function submitTransaction(transaction: Transaction, chainId: strin
     if (!response.ok) {
         throw new ApiError('Failed to submit transaction');
     }
+}
+
+export async function fetchDiscussionContext(chainId: string, round: number): Promise<DiscussionContext> {
+    const response = await fetch(`${API_CONFIG.BASE_URL}/insights/${chainId}/discussion-context?round=${round}`);
+    if (!response.ok) {
+        throw new Error('Failed to fetch discussion context');
+    }
+    return response.json();
+}
+
+export async function fetchInsights(chainId: string, round: number = 1): Promise<InsightSummary> {
+    const response = await fetch(`${API_CONFIG.BASE_URL}/insights/${chainId}?round=${round}`);
+    if (!response.ok) {
+        throw new ApiError('Failed to fetch insights');
+    }
+    return response.json();
+}
+
+export async function fetchDiscussionAnalysis(chainId: string): Promise<DiscussionAnalysis> {
+    const response = await fetch(`${API_CONFIG.BASE_URL}/insights/${chainId}/analysis`);
+    if (!response.ok) {
+        throw new ApiError('Failed to fetch discussion analysis');
+    }
+    return response.json();
 } 

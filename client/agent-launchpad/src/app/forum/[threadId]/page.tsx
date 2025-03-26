@@ -7,6 +7,7 @@ import { FiArrowLeft } from "react-icons/fi";
 import { useEffect, useState, useRef } from "react";
 import { wsService } from "@/services/websocket";
 import { fetchValidators, proposeBlock } from "@/services/api";
+import InsightsPanel from "@/components/InsightsPanel";
 
 interface AgentVote {
     validatorId: string;
@@ -53,9 +54,9 @@ const formatMessageWithMentions = (message: string) => {
 export default function ThreadDetailPage() {
   // Track WebSocket connection status
   const wsConnectedRef = useRef(false);
-  const params = useParams();
+  const params = useParams() || {};
   const chainId = typeof params.chainId === 'string' ? params.chainId : "";
-  const searchParams = useSearchParams();
+  const searchParams = useSearchParams() || new URLSearchParams();
   const [replies, setReplies] = useState<AgentVote[]>([]);
   const [votingResult, setVotingResult] = useState<VotingResult | null>(null);
   const [blockVerdict, setBlockVerdict] = useState<any | null>(null);
@@ -297,6 +298,14 @@ export default function ThreadDetailPage() {
             <pre className="bg-gray-900 p-4 rounded">
               {JSON.stringify(blockVerdict, null, 2)}
             </pre>
+          </div>
+        )}
+
+        {/* Add Insights Panel */}
+        {blockVerdict && (
+          <div className="mt-8 bg-gray-800 p-6 rounded-lg">
+            <h2 className="text-2xl font-bold mb-4">Discussion Analysis</h2>
+            <InsightsPanel chainId={chainId} />
           </div>
         )}
       </div>
