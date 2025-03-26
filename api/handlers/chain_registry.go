@@ -5,34 +5,43 @@ import (
 	"sync"
 )
 
-type chainRegistry struct {
-	mu     sync.RWMutex
-	chains map[string]int // chainID -> RPC port
+type NodeInfo struct {
+	IsGenesis bool
+	RPCPort   int
+	P2PPort   int
 }
 
-var registry = &chainRegistry{
-	chains: make(map[string]int),
-}
+var (
+	// Map of chainID -> Map of nodeID -> NodeInfo
+	chainNodes    = make(map[string]map[string]NodeInfo)
+	registryMutex sync.RWMutex
+)
 
-func registerChainPort(chainID string, port int) {
-	registry.mu.Lock()
-	defer registry.mu.Unlock()
-	registry.chains[chainID] = port
+func RegisterNode(chainID string, nodeID string, info NodeInfo) {
+	registryMutex.Lock()
+	defer registryMutex.Unlock()
+
+	if _, exists := chainNodes[chainID]; !exists {
+		chainNodes[chainID] = make(map[string]NodeInfo)
+	}
+	chainNodes[chainID][nodeID] = info
 }
 
 func getRPCPortForChain(chainID string) (int, error) {
-	registry.mu.RLock()
-	defer registry.mu.RUnlock()
+	registryMutex.RLock()
+	defer registryMutex.RUnlock()
 
-	port, exists := registry.chains[chainID]
+	nodes, exists := chainNodes[chainID]
 	if !exists {
-		return 0, fmt.Errorf("chain %s not registered", chainID)
+		return 0, fmt.Errorf("chain %s not found", chainID)
 	}
-	return port, nil
-}
 
-func extractPortFromAddress(address string) int {
-	var port int
-	fmt.Sscanf(address, "tcp://0.0.0.0:%d", &port)
-	return port
+	// Find genesis node
+	for _, info := range nodes {
+		if info.IsGenesis {
+			return info.RPCPort, nil
+		}
+	}
+
+	return 0, fmt.Errorf("genesis node not found for chain %s", chainID)
 }

@@ -3,14 +3,16 @@ package handlers
 import (
 	"context"
 	"fmt"
+	"log"
 	"net/http"
 	"os"
+	"os/exec"
 	"strconv"
-	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/google/uuid"
+
+	"hash/crc32"
 
 	"github.com/NethermindEth/chaoschain-launchpad/cmd/node"
 	"github.com/NethermindEth/chaoschain-launchpad/communication"
@@ -23,25 +25,6 @@ import (
 	"github.com/cometbft/cometbft/types"
 )
 
-var (
-	lastUsedPort = 8080
-	portMutex    sync.Mutex
-)
-
-func findAvailablePort() int {
-	portMutex.Lock()
-	defer portMutex.Unlock()
-	lastUsedPort++
-	return lastUsedPort
-}
-
-func findAvailableAPIPort() int {
-	portMutex.Lock()
-	defer portMutex.Unlock()
-	lastUsedPort++
-	return lastUsedPort
-}
-
 // Add at the top with other types
 type RelationshipUpdate struct {
 	FromID   string  `json:"fromId"`
@@ -52,48 +35,113 @@ type RelationshipUpdate struct {
 // RegisterAgent - Registers a new AI agent (Producer or Validator)
 func RegisterAgent(c *gin.Context) {
 	chainID := c.GetString("chainID")
-
 	var agent core.Agent
 	if err := c.ShouldBindJSON(&agent); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid agent data"})
 		return
 	}
 
-	// Assign a unique ID
-	agent.ID = uuid.New().String()
+	// Just set up the data directory path
+	dataDir := fmt.Sprintf("./data/%s/%s", chainID, agent.ID)
 
-	// Create CometBFT config for the new node
-	config := cfg.DefaultConfig()
-	config.BaseConfig.RootDir = fmt.Sprintf("./data/%s", chainID)
-	config.Moniker = fmt.Sprintf("%s-%s", agent.Role, agent.Name)
+	// Assign specific ports based on agent ID
+	basePort := 26656
+	agentIDInt := int(crc32.ChecksumIEEE([]byte(agent.ID)))
+	p2pPort := basePort + (agentIDInt % 10000)
+	rpcPort := p2pPort + 1
 
-	// Set up P2P and RPC ports
-	p2pPort := findAvailablePort()
-	rpcPort := findAvailableAPIPort()
-	config.P2P.ListenAddress = fmt.Sprintf("tcp://0.0.0.0:%d", p2pPort)
-	config.RPC.ListenAddress = fmt.Sprintf("tcp://0.0.0.0:%d", rpcPort)
+	if p2pPort == 26656 || rpcPort == 26657 {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Agent port conflicts with Genesis node"})
+		return
+	}
 
-	// Connect to existing chain
-	config.P2P.Seeds = fmt.Sprintf("tcp://localhost:26656") // Connect to genesis node
+	// Create required directories
+	if err := os.MkdirAll(dataDir+"/config", 0755); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to create config directory: %v", err)})
+		return
+	}
+	if err := os.MkdirAll(dataDir+"/data", 0755); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to create data directory: %v", err)})
+		return
+	}
+
+	// Copy genesis file from genesis node
+	genesisFile := fmt.Sprintf("./data/%s/genesis/config/genesis.json", chainID)
+	if !fileExists(genesisFile) {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Genesis file not found. Is genesis node running?"})
+		return
+	}
+
+	// Read genesis file
+	genesisBytes, err := os.ReadFile(genesisFile)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to read genesis file: %v", err)})
+		return
+	}
+
+	// Write to new node's config directory
+	newGenesisFile := fmt.Sprintf("%s/config/genesis.json", dataDir)
+	if err := os.WriteFile(newGenesisFile, genesisBytes, 0644); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to write genesis file: %v", err)})
+		return
+	}
+
+	// Get genesis node ID from its node_key.json
+	genesisNodeKeyFile := fmt.Sprintf("./data/%s/genesis/config/node_key.json", chainID)
+	genesisNodeKey, err := p2p.LoadNodeKey(genesisNodeKeyFile)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to load genesis node key"})
+		return
+	}
+
+	// Create seed node string
+	seedNode := fmt.Sprintf("%s@127.0.0.1:26656", genesisNodeKey.ID())
 
 	// Create and start the node
-	agentNode, err := node.NewNode(config, chainID)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to create node: %v", err)})
+	cmd := exec.Command(
+		"./chaos-agent", // compiled agent binary
+		"--chain", chainID,
+		"--agent-id", agent.ID,
+		"--p2p-port", fmt.Sprintf("%d", p2pPort),
+		"--rpc-port", fmt.Sprintf("%d", rpcPort),
+		"--seed", seedNode,
+	)
+
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+
+	if err := cmd.Start(); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to start agent process: %v", err)})
 		return
 	}
 
-	if err := agentNode.Start(context.Background()); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to start node: %v", err)})
+	// Create a channel to receive process errors
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- cmd.Wait()
+	}()
+
+	// Wait briefly for ports to be bound
+	select {
+	case err := <-errCh:
+		// Process exited with error
+		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Agent process failed: %v", err)})
+		return
+	case <-time.After(3 * time.Second):
+		// Process is still running after timeout, assume it's working
+	}
+
+	// Check if the process is still running
+	if cmd.ProcessState != nil && cmd.ProcessState.Exited() {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Agent process exited unexpectedly"})
 		return
 	}
 
-	// Extract port from RPC address and register it
-	rpcPort = extractPortFromAddress(config.RPC.ListenAddress)
-	registerChainPort(chainID, rpcPort)
-
-	// Store agent metadata (we'll need a new way to track agents)
-	// TODO: Implement agent tracking
+	RegisterNode(chainID, agent.ID, NodeInfo{
+		IsGenesis: false,
+		P2PPort:   p2pPort,
+		RPCPort:   rpcPort,
+	})
 
 	communication.BroadcastEvent(communication.EventAgentRegistered, agent)
 
@@ -160,34 +208,23 @@ func GetBlock(c *gin.Context) {
 func GetNetworkStatus(c *gin.Context) {
 	chainID := c.GetString("chainID")
 
-	// Get RPC port for this chain
-	rpcPort, err := getRPCPortForChain(chainID)
+	log.Println("chainID", chainID)
+
+	client, err := rpchttp.New("tcp://localhost:26657", "/websocket")
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Chain not found"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to connect to node"})
 		return
 	}
 
-	// Connect to the node
-	client, err := rpchttp.New(fmt.Sprintf("tcp://localhost:%d", rpcPort), "/websocket")
+	// Get network info
+	netInfo, err := client.NetInfo(context.Background())
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to connect to node: %v", err)})
-		return
-	}
-
-	// Get status from node
-	status, err := client.Status(context.Background())
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to get status: %v", err)})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get network info"})
 		return
 	}
 
 	networkStatus := gin.H{
-		"height":        status.SyncInfo.LatestBlockHeight,
-		"latestHash":    status.SyncInfo.LatestBlockHash,
-		"listenAddr":    status.NodeInfo.ListenAddr,
-		"network":       status.NodeInfo.Network,
-		"catchingUp":    status.SyncInfo.CatchingUp,
-		"validatorInfo": status.ValidatorInfo,
+		"netInfo": netInfo,
 	}
 
 	c.JSON(http.StatusOK, gin.H{"status": networkStatus})
@@ -388,22 +425,52 @@ func CreateChain(c *gin.Context) {
 	}
 
 	// Check if chain already exists in our registry
-	rpcPort, err := getRPCPortForChain(req.ChainID)
-	if err == nil {
+	if _, err := getRPCPortForChain(req.ChainID); err == nil {
 		c.JSON(http.StatusConflict, gin.H{"error": "Chain already exists"})
 		return
 	}
-
-	// Find available ports for the bootstrap node
-	p2pPort := findAvailablePort()
-	rpcPort = findAvailableAPIPort()
 
 	// Create CometBFT config for genesis node
 	config := cfg.DefaultConfig()
 	config.BaseConfig.RootDir = "./data/" + req.ChainID
 	config.Moniker = "genesis-node"
-	config.P2P.ListenAddress = "tcp://0.0.0.0:" + strconv.Itoa(p2pPort)
-	config.RPC.ListenAddress = "tcp://0.0.0.0:" + strconv.Itoa(rpcPort)
+	config.P2P.ListenAddress = "tcp://0.0.0.0:0"
+	config.RPC.ListenAddress = "tcp://0.0.0.0:0"
+
+	// Get genesis node ID from its node_key.json
+	genesisNodeKeyFile := fmt.Sprintf("./data/%s/genesis/config/node_key.json", req.ChainID)
+	genesisNodeKey, err := p2p.LoadNodeKey(genesisNodeKeyFile)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to load genesis node key"})
+		return
+	}
+
+	// Make addresses routable
+	config.P2P.AllowDuplicateIP = true
+	config.P2P.AddrBookStrict = false
+	// We'll get the actual port after the node starts
+
+	// Use genesis node as seed for peer discovery
+	peerString := fmt.Sprintf("%s@127.0.0.1:26656", genesisNodeKey.ID())
+	config.P2P.Seeds = peerString
+
+	// Additional P2P settings
+	config.P2P.PexReactor = true        // Enable peer exchange
+	config.P2P.MaxNumInboundPeers = 100 // Increase limits
+	config.P2P.MaxNumOutboundPeers = 30
+	config.P2P.AddrBookStrict = false  // Allow same IP different ports
+	config.P2P.AllowDuplicateIP = true // Important for local testing
+
+	// Additional settings for better peer connections
+	config.P2P.HandshakeTimeout = 20 * time.Second
+	config.P2P.DialTimeout = 3 * time.Second
+	config.P2P.FlushThrottleTimeout = 10 * time.Millisecond
+
+	// Create required directories
+	if err := os.MkdirAll(config.BaseConfig.RootDir+"/config", 0755); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to create config directory: %v", err)})
+		return
+	}
 
 	// Initialize config files and validator keys
 	if err := os.MkdirAll(config.BaseConfig.RootDir+"/config", 0755); err != nil {
@@ -478,14 +545,18 @@ func CreateChain(c *gin.Context) {
 	}
 
 	// Register chain in our registry
-	registerChainPort(req.ChainID, rpcPort)
+	RegisterNode(req.ChainID, "genesis", NodeInfo{
+		IsGenesis: true,
+		RPCPort:   func() int { p, _ := strconv.Atoi(config.RPC.ListenAddress[10:]); return p }(),
+		P2PPort:   func() int { p, _ := strconv.Atoi(config.P2P.ListenAddress[10:]); return p }(),
+	})
 
 	c.JSON(http.StatusCreated, gin.H{
 		"message":  "Chain created successfully",
 		"chain_id": req.ChainID,
 		"genesis_node": map[string]int{
-			"p2p_port": p2pPort,
-			"rpc_port": rpcPort,
+			"p2p_port": func() int { p, _ := strconv.Atoi(config.P2P.ListenAddress[10:]); return p }(),
+			"rpc_port": func() int { p, _ := strconv.Atoi(config.RPC.ListenAddress[10:]); return p }(),
 		},
 	})
 }

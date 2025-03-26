@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/NethermindEth/chaoschain-launchpad/api"
+	"github.com/NethermindEth/chaoschain-launchpad/api/handlers"
 	"github.com/NethermindEth/chaoschain-launchpad/cmd/node"
 	_ "github.com/NethermindEth/chaoschain-launchpad/config" // Initialize config
 	"github.com/NethermindEth/chaoschain-launchpad/core"
@@ -27,15 +28,21 @@ func fileExists(filename string) bool {
 func main() {
 	// Parse command line flags
 	chainID := flag.String("chain", "mainnet", "Chain ID")
+	nodeID := flag.String("node-id", "genesis", "Node ID")
 	p2pPort := flag.Int("p2p-port", 26656, "CometBFT P2P port")
 	rpcPort := flag.Int("rpc-port", 26657, "CometBFT RPC port")
-	apiPort := flag.Int("api-port", 8080, "API server port")
+	apiPort := flag.Int("api-port", 3000, "API server port")
 	nats := flag.String("nats", "nats://localhost:4222", "NATS URL")
 	flag.Parse()
 
+	// before creating data directory, check if it exists and delete it
+	if _, err := os.Stat(fmt.Sprintf("./data/%s", *chainID)); err == nil {
+		os.RemoveAll(fmt.Sprintf("./data/%s", *chainID))
+	}
+
 	// Create data directory for the chain
-	dataDir := fmt.Sprintf("./data/%s", *chainID)
-	if err := os.MkdirAll(dataDir, 0755); err != nil {
+	dataDir := fmt.Sprintf("./data/%s/%s", *chainID, *nodeID)
+	if err := os.MkdirAll(dataDir+"/data", 0755); err != nil {
 		log.Fatalf("Failed to create data directory: %v", err)
 	}
 
@@ -51,12 +58,25 @@ func main() {
 		log.Fatalf("Failed to create config directory: %v", err)
 	}
 
+	// Create data directory for validator state
+	if err := os.MkdirAll(config.BaseConfig.RootDir+"/data", 0755); err != nil {
+		log.Fatalf("Failed to create validator data directory: %v", err)
+	}
+
 	// Initialize validator key files
 	privValKeyFile := config.PrivValidatorKeyFile()
 	privValStateFile := config.PrivValidatorStateFile()
 	if !fileExists(privValKeyFile) {
 		privVal := privval.GenFilePV(privValKeyFile, privValStateFile)
+		// Initialize with empty state
 		privVal.Save()
+	} else {
+		// Load existing validator and ensure state file exists
+		privVal := privval.LoadFilePV(privValKeyFile, privValStateFile)
+		if !fileExists(privValStateFile) {
+			// Initialize with empty state if missing
+			privVal.Save()
+		}
 	}
 
 	// Initialize node key file
@@ -112,8 +132,20 @@ func main() {
 	}
 
 	// Genesis node settings
-	config.P2P.Seeds = "" // No seeds for genesis node
-	config.P2P.PersistentPeers = ""
+	config.P2P.AllowDuplicateIP = true
+	config.P2P.AddrBookStrict = false
+	config.P2P.ExternalAddress = fmt.Sprintf("tcp://127.0.0.1:%d", *p2pPort)
+	config.P2P.ListenAddress = fmt.Sprintf("tcp://0.0.0.0:%d", *p2pPort)
+
+	// Additional settings for better peer connections
+	config.P2P.HandshakeTimeout = 20 * time.Second
+	config.P2P.DialTimeout = 3 * time.Second
+	config.P2P.FlushThrottleTimeout = 10 * time.Millisecond
+	config.P2P.MaxNumInboundPeers = 40
+	config.P2P.MaxNumOutboundPeers = 10
+
+	config.P2P.SeedMode = true // Only helps discover peers, doesn’t try to dial anyone
+	config.P2P.PexReactor = true
 
 	genesisNode, err := node.NewNode(config, *chainID)
 	if err != nil {
@@ -124,6 +156,12 @@ func main() {
 	if err != nil {
 		log.Fatalf("Failed to start node: %v", err)
 	}
+
+	handlers.RegisterNode(*chainID, *nodeID, handlers.NodeInfo{
+		IsGenesis: true,
+		RPCPort:   *rpcPort,
+		P2PPort:   *p2pPort,
+	})
 
 	// Start NATS messaging
 	core.SetupNATS(*nats)

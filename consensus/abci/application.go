@@ -44,22 +44,20 @@ func (app *Application) InitChain(req types.RequestInitChain) types.ResponseInit
 	log.Printf("InitChain request: %+v", req)
 	log.Printf("InitChain Genesis Validators: %d", len(req.Validators))
 
-	// Create a validator directly during InitChain
-	// We need to manually create our validator since it's not being passed correctly
-	valPubKey := types.Ed25519ValidatorUpdate(
-		[]byte{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32},
-		1000000)
+	// Use the validators from the genesis file
+	app.validators = req.Validators
 
-	// Store validators from genesis
-	app.validators = []types.ValidatorUpdate{valPubKey}
+	// Log the validators we're using
+	for i, val := range app.validators {
+		log.Printf("Using validator %d: %v", i, val)
+	}
 
 	// Log validators to debug
-	log.Printf("InitChain with manually created validator")
-	log.Printf("Created validator: %v", valPubKey)
+	log.Printf("InitChain with %d validators from genesis", len(app.validators))
 
 	// Must return validators even if empty to properly initialize the validator set
 	return types.ResponseInitChain{
-		Validators: []types.ValidatorUpdate{valPubKey}, // Return our manually created validator
+		Validators: app.validators, // Return the validators from genesis
 		ConsensusParams: &tmproto.ConsensusParams{
 			Block: &tmproto.BlockParams{
 				MaxBytes: 22020096, // 21MB
@@ -98,16 +96,10 @@ func (app *Application) EndBlock(req types.RequestEndBlock) types.ResponseEndBlo
 	if req.Height == 1 {
 		log.Printf("EndBlock at height 1 - explicitly returning validators")
 
-		// Load the validator key
-		valPubKey := types.Ed25519ValidatorUpdate(
-			[]byte{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32},
-			1000000)
-
-		// Set this validator as active
-		app.validators = []types.ValidatorUpdate{valPubKey}
-
+		// Return the validators we already have from InitChain
+		log.Printf("Returning %d validators at height 1", len(app.validators))
 		return types.ResponseEndBlock{
-			ValidatorUpdates: []types.ValidatorUpdate{valPubKey},
+			ValidatorUpdates: app.validators,
 		}
 	}
 

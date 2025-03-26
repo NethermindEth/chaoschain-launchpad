@@ -27,7 +27,7 @@ func NewNode(config *cfg.Config, chainId string) (*Node, error) {
 	// Initialize config files and keys
 	cfg.EnsureRoot(config.RootDir) // This function returns void, no need to check error
 
-	// Create ABCI app
+	// Create ABCI application
 	app := abci.NewApplication(chainId)
 
 	genDoc, err := types.GenesisDocFromFile(config.GenesisFile())
@@ -41,38 +41,36 @@ func NewNode(config *cfg.Config, chainId string) (*Node, error) {
 		log.Printf("Error reading genesis file: %v", err)
 	}
 
-	// Create node with default logger
+	// Create node key
+	nodeKey, err := p2p.LoadOrGenNodeKey(config.NodeKeyFile())
+	if err != nil {
+		return nil, fmt.Errorf("failed to load node key: %v", err)
+	}
+
+	// Create validator
+	privValidator := privval.LoadOrGenFilePV(
+		config.PrivValidatorKeyFile(),
+		config.PrivValidatorStateFile(),
+	)
+
+	// Create genesis doc provider
+	genDocProvider := func() (*types.GenesisDoc, error) {
+		return types.GenesisDocFromFile(config.GenesisFile())
+	}
+
+	// Create node
 	node, err := node.NewNode(
 		config,
-		privval.LoadFilePV(config.PrivValidatorKeyFile(), config.PrivValidatorStateFile()),
-		func() *p2p.NodeKey {
-			nodeKey, err := p2p.LoadNodeKey(config.NodeKeyFile())
-			if err != nil {
-				log.Fatalf("failed to load node key: %v", err)
-				panic(err) // Or handle error appropriately
-			}
-			return nodeKey
-		}(),
+		privValidator,
+		nodeKey,
 		proxy.NewLocalClientCreator(app),
-		// Load genesis doc with our validator
-		func() (*types.GenesisDoc, error) {
-			genDoc, err := types.GenesisDocFromFile(config.GenesisFile())
-			if err != nil {
-				return nil, fmt.Errorf("failed to read genesis doc: %w", err)
-			}
-			log.Printf("Genesis doc provider - validators count: %d", len(genDoc.Validators))
-			for i, v := range genDoc.Validators {
-				log.Printf("Genesis validator %d: Address=%s, PubKey=%s, Power=%d",
-					i, v.Address, v.PubKey, v.Power)
-			}
-			return genDoc, nil
-		},
+		genDocProvider,
 		node.DefaultDBProvider,
 		node.DefaultMetricsProvider(config.Instrumentation),
 		tmlog.NewTMLogger(tmlog.NewSyncWriter(os.Stdout)),
 	)
 	if err != nil {
-		log.Fatalf("failed to create node: %v", err)
+		log.Fatalf("failed to create node NODE: %v", err)
 		return nil, fmt.Errorf("failed to create node: %v", err)
 	}
 
@@ -92,4 +90,12 @@ func (n *Node) Start(ctx context.Context) error {
 
 func (n *Node) Stop(ctx context.Context) error {
 	return n.node.Stop()
+}
+
+func (n *Node) NodeInfo() p2p.NodeInfo {
+	return n.node.NodeInfo().(p2p.DefaultNodeInfo)
+}
+
+func (n *Node) Config() *cfg.Config {
+	return n.cometCfg
 }
