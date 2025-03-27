@@ -11,7 +11,7 @@ import (
 	"github.com/NethermindEth/chaoschain-launchpad/api"
 	"github.com/NethermindEth/chaoschain-launchpad/api/handlers"
 	"github.com/NethermindEth/chaoschain-launchpad/cmd/node"
-	_ "github.com/NethermindEth/chaoschain-launchpad/config" // Initialize config
+
 	"github.com/NethermindEth/chaoschain-launchpad/core"
 	cfg "github.com/cometbft/cometbft/config"
 	"github.com/cometbft/cometbft/p2p"

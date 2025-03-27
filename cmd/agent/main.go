@@ -10,6 +10,7 @@ import (
 	"github.com/NethermindEth/chaoschain-launchpad/cmd/node"
 	cfg "github.com/cometbft/cometbft/config"
 	"github.com/cometbft/cometbft/p2p"
+	"github.com/cometbft/cometbft/privval"
 )
 
 func main() {
@@ -18,6 +19,7 @@ func main() {
 	p2pPort := flag.Int("p2p-port", 0, "P2P Port")
 	rpcPort := flag.Int("rpc-port", 0, "RPC Port")
 	seedNode := flag.String("seed", "", "Seed node ID@IP:port")
+	isValidator := flag.Bool("validator", false, "Whether this node is a validator")
 	flag.Parse()
 
 	if *chainID == "" || *agentID == "" {
@@ -56,6 +58,18 @@ func main() {
 		log.Printf("Using seed node: %s", *seedNode)
 	}
 
+	// Set validator mode if specified
+	if *isValidator {
+		log.Printf("Starting node as validator")
+		// Load private validator key
+		privValKeyFile := fmt.Sprintf("%s/config/priv_validator_key.json", rootDir)
+		privValStateFile := fmt.Sprintf("%s/data/priv_validator_state.json", rootDir)
+		if !fileExists(privValKeyFile) {
+			privVal := privval.GenFilePV(privValKeyFile, privValStateFile)
+			privVal.Save()
+		}
+	}
+
 	nodeInstance, err := node.NewNode(config, *chainID)
 	if err != nil {
 		log.Fatalf("Failed to create agent node: %v", err)
@@ -67,4 +81,10 @@ func main() {
 
 	log.Printf("Agent node [%s] started on P2P %d, RPC %d", *agentID, *p2pPort, *rpcPort)
 	select {} // keep process running
+}
+
+// fileExists checks if a file exists
+func fileExists(filename string) bool {
+	_, err := os.Stat(filename)
+	return !os.IsNotExist(err)
 }

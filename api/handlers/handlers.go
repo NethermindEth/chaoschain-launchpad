@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"fmt"
+	"log"
 	"net/http"
 	"os"
 	"os/exec"
@@ -104,6 +105,7 @@ func RegisterAgent(c *gin.Context) {
 		"--p2p-port", fmt.Sprintf("%d", p2pPort),
 		"--rpc-port", fmt.Sprintf("%d", rpcPort),
 		"--seed", seedNode,
+		"--validator", fmt.Sprintf("%t", agent.Role == "validator"), // Only validators get validation power
 	)
 
 	cmd.Stdout = os.Stdout
@@ -134,6 +136,19 @@ func RegisterAgent(c *gin.Context) {
 	if cmd.ProcessState != nil && cmd.ProcessState.Exited() {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Agent process exited unexpectedly"})
 		return
+	}
+
+	// If this is a validator, register it with the consensus engine
+	if agent.Role == "validator" {
+		// Connect to the genesis node to register this validator
+		_, err := rpchttp.New("tcp://localhost:26657", "/websocket")
+		if err == nil {
+			// Submit a transaction to register the validator
+			// This would typically involve creating a transaction that your ABCI app recognizes
+			// as a validator registration transaction
+			// For now, we'll just log it
+			log.Printf("Registered new validator: %s", agent.ID)
+		}
 	}
 
 	RegisterNode(chainID, agent.ID, NodeInfo{

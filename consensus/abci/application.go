@@ -1,6 +1,7 @@
 package abci
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -9,6 +10,7 @@ import (
 	"github.com/NethermindEth/chaoschain-launchpad/core"
 	"github.com/NethermindEth/chaoschain-launchpad/validator"
 	types "github.com/cometbft/cometbft/abci/types"
+	"github.com/cometbft/cometbft/crypto"
 	tmproto "github.com/cometbft/cometbft/proto/tendermint/types"
 )
 
@@ -40,10 +42,6 @@ func (app *Application) Info(req types.RequestInfo) types.ResponseInfo {
 }
 
 func (app *Application) InitChain(req types.RequestInitChain) types.ResponseInitChain {
-	log.Printf("InitChain called - Chain ID: %s", req.ChainId)
-	log.Printf("InitChain request: %+v", req)
-	log.Printf("InitChain Genesis Validators: %d", len(req.Validators))
-
 	// Use the validators from the genesis file
 	app.validators = req.Validators
 
@@ -52,10 +50,14 @@ func (app *Application) InitChain(req types.RequestInitChain) types.ResponseInit
 		log.Printf("Using validator %d: %v", i, val)
 	}
 
+	// For PoA, we need to ensure we have at least one validator
+	if len(app.validators) == 0 {
+		log.Printf("WARNING: No validators in genesis, consensus may not work properly")
+	}
+
 	// Log validators to debug
 	log.Printf("InitChain with %d validators from genesis", len(app.validators))
 
-	// Must return validators even if empty to properly initialize the validator set
 	return types.ResponseInitChain{
 		Validators: app.validators, // Return the validators from genesis
 		ConsensusParams: &tmproto.ConsensusParams{
@@ -70,6 +72,10 @@ func (app *Application) InitChain(req types.RequestInitChain) types.ResponseInit
 			},
 			Validator: &tmproto.ValidatorParams{
 				PubKeyTypes: []string{"ed25519"},
+			},
+			// Add PoA specific parameters
+			Version: &tmproto.VersionParams{
+				App: 1,
 			},
 		},
 	}
@@ -130,6 +136,8 @@ func (app *Application) ApplySnapshotChunk(req types.RequestApplySnapshotChunk) 
 
 // PrepareProposal is called when this validator is the proposer
 func (app *Application) PrepareProposal(req types.RequestPrepareProposal) types.ResponsePrepareProposal {
+	// TODO: Implement PrepareProposal
+
 	app.mu.Lock()
 	defer app.mu.Unlock()
 
@@ -204,4 +212,24 @@ func (app *Application) ProcessProposal(req types.RequestProcessProposal) types.
 	}
 
 	return types.ResponseProcessProposal{Status: types.ResponseProcessProposal_ACCEPT}
+}
+
+// RegisterValidator adds a new validator to the set
+func (app *Application) RegisterValidator(pubKey crypto.PubKey, power int64) {
+	app.mu.Lock()
+	defer app.mu.Unlock()
+
+	valUpdate := types.Ed25519ValidatorUpdate(pubKey.Bytes(), power)
+
+	// Check if validator already exists
+	for i, val := range app.validators {
+		if bytes.Equal(val.PubKey.GetEd25519(), pubKey.Bytes()) {
+			// Update existing validator
+			app.validators[i] = valUpdate
+			return
+		}
+	}
+
+	// Add new validator
+	app.validators = append(app.validators, valUpdate)
 }
