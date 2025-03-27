@@ -20,6 +20,8 @@ type Transaction struct {
 	Signature string  `json:"signature"`
 	PublicKey string  `json:"publicKey"`
 	ChainID   string  `json:"chainID"`
+	Type      string  `json:"type"`
+	Reward    float64 `json:"reward"`
 }
 
 // GenerateKeyPair creates a new key pair for signing transactions

@@ -3,6 +3,7 @@ package consensus
 import (
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -29,6 +30,15 @@ type Discussion struct {
 	Timestamp     time.Time `json:"timestamp"`
 	Type          string    `json:"type"`  // "comment", "support", "oppose", "question"
 	Round         int       `json:"round"` // Which discussion round (1-5)
+	Proposal      string
+	Responses     []Response
+}
+
+type Response struct {
+	ValidatorID string
+	Opinion     string
+	Stance      string
+	Timestamp   time.Time
 }
 
 const (
@@ -40,6 +50,14 @@ const (
 type BlockOpinion struct {
 	Message string
 	Type    string // "support", "oppose", "question"
+}
+
+// RewardProposal represents a validator's proposed reward distribution
+type RewardProposal struct {
+	ValidatorID string             `json:"validatorId"`
+	Stance      string             `json:"stance"`
+	Splits      map[string]float64 `json:"splits"`    // contributor -> percentage
+	Reasoning   map[string]string  `json:"reasoning"` // contributor -> justification
 }
 
 // AddDiscussion adds a new discussion point about a block
@@ -291,4 +309,98 @@ func StartBlockDiscussion(validatorID string, block *core.Block, traits []string
 			fmt.Println("Error publishing final vote to NATS:", err)
 		}
 	}
+}
+
+// Update the discussion handling to process different types of proposals
+func (bc *BlockConsensus) ProcessProposalsFromBlock(block core.Block) {
+	for _, tx := range block.Txs {
+		if strings.HasPrefix(tx.Type, "TASK_") || strings.HasPrefix(tx.Type, "WORK_") || strings.HasPrefix(tx.Type, "REWARD_") {
+			// These are handled directly by validators through P2P
+			continue
+		}
+		// Process other types of proposals...
+	}
+}
+
+// Helper function to extract stance from decision
+func extractStance(decision string) string {
+	decision = strings.ToLower(decision)
+	if strings.Contains(decision, "support") || strings.Contains(decision, "agree") {
+		return "support"
+	}
+	return "oppose"
+}
+
+// ConsolidateRewardProposals combines different validator proposals into a final distribution
+func ConsolidateRewardProposals(proposals []RewardProposal) (map[string]float64, []string) {
+	if len(proposals) == 0 {
+		return nil, []string{"No proposals to consolidate"}
+	}
+
+	// Count support/oppose/question stances
+	stances := make(map[string]int)
+	for _, p := range proposals {
+		stances[p.Stance]++
+	}
+
+	// If majority oppose or question, return nil with reasons
+	if stances["OPPOSE"] > len(proposals)/2 {
+		return nil, []string{"Majority of validators oppose the reward distribution"}
+	}
+	if stances["QUESTION"] > len(proposals)/2 {
+		return nil, []string{"Majority of validators have questions about the reward distribution"}
+	}
+
+	// Aggregate all proposed splits
+	contributorSplits := make(map[string][]float64)
+	for _, p := range proposals {
+		if p.Stance != "SUPPORT" {
+			continue
+		}
+		for contributor, percentage := range p.Splits {
+			contributorSplits[contributor] = append(contributorSplits[contributor], percentage)
+		}
+	}
+
+	// Calculate final splits using median values to avoid extreme proposals
+	finalSplits := make(map[string]float64)
+	var conflicts []string
+
+	for contributor, splits := range contributorSplits {
+		// Calculate median of proposed splits
+		median := calculateMedian(splits)
+		finalSplits[contributor] = median
+	}
+
+	// Normalize splits to ensure they sum to 100%
+	total := 0.0
+	for _, split := range finalSplits {
+		total += split
+	}
+
+	if total != 100.0 {
+		conflicts = append(conflicts, fmt.Sprintf("Splits adjusted to sum to 100%% (was %.2f%%)", total))
+		for contributor := range finalSplits {
+			finalSplits[contributor] = (finalSplits[contributor] / total) * 100
+		}
+	}
+
+	return finalSplits, conflicts
+}
+
+// calculateMedian returns the median value from a slice of float64
+func calculateMedian(values []float64) float64 {
+	if len(values) == 0 {
+		return 0
+	}
+
+	// Sort the values
+	sort.Float64s(values)
+
+	// Get median
+	middle := len(values) / 2
+	if len(values)%2 == 0 {
+		return (values[middle-1] + values[middle]) / 2
+	}
+	return values[middle]
 }

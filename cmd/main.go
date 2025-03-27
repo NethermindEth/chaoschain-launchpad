@@ -37,7 +37,7 @@ func main() {
 	}
 
 	// Initialize chain-specific components
-	core.InitBlockchain(*chainID, mempool.GetMempool(*chainID))
+	core.InitBlockchain(*chainID, mempool.GetMempool(*chainID), "Default genesis prompt", 1000)
 
 	// Initialize EigenDA service
 	log.Printf("Initializing EigenDA service with NATS URL: %s", *nats)

@@ -85,7 +85,7 @@ func (mp *Mempool) GetPendingTransactions() []core.Transaction {
 	mp.mu.Lock()
 	defer mp.mu.Unlock()
 
-	var txs []core.Transaction
+	txs := make([]core.Transaction, 0, len(mp.transactions))
 	for _, tx := range mp.transactions {
 		txs = append(txs, tx)
 	}

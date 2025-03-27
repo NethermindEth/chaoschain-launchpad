@@ -143,6 +143,7 @@ func RegisterAgent(c *gin.Context) {
 			agent.Style,
 			agent.Influences,
 			agentNode.GetP2PNode(),
+			chain.GenesisPrompt,
 		)
 
 		// Register on the agent's node
@@ -530,6 +531,7 @@ func GetAllThreads(c *gin.Context) {
 type CreateChainRequest struct {
 	ChainID       string `json:"chain_id" binding:"required"`
 	GenesisPrompt string `json:"genesis_prompt" binding:"required"`
+	RewardPool    int    `json:"reward_pool" binding:"required"`
 }
 
 func loadSampleAgents(genesisPrompt string) ([]core.Agent, error) {
@@ -582,6 +584,7 @@ func registerAgent(chainID string, agent core.Agent, bootstrapPort int) error {
 			agent.Style,
 			agent.Influences,
 			agentNode.GetP2PNode(),
+			chain.GenesisPrompt,
 		)
 
 		// Register validator
@@ -634,7 +637,7 @@ func CreateChain(c *gin.Context) {
 
 	// Initialize new chain with its own mempool
 	mp := mempool.NewMempool(req.ChainID)
-	core.InitBlockchain(req.ChainID, mp)
+	core.InitBlockchain(req.ChainID, mp, req.GenesisPrompt, req.RewardPool)
 
 	// Register the bootstrap node with the chain
 	chain := core.GetChain(req.ChainID)
@@ -790,4 +793,126 @@ func ListBlockDiscussions(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"blocks": blocks})
+}
+
+// SubmitTask submits a new task for delegation and discussion
+func SubmitTask(c *gin.Context) {
+	chainID := c.Param("chainId")
+	var task struct {
+		Content    string  `json:"content"`
+		RewardPool float64 `json:"reward_pool"`
+	}
+
+	if err := c.BindJSON(&task); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Create transaction for task
+	tx := core.Transaction{
+		Type:    "TASK_DELEGATION",
+		Content: task.Content,
+		ChainID: chainID,
+		Fee:     0, // No fee for task submission
+	}
+
+	// Get chain and add to mempool
+	chain := core.GetChain(chainID)
+	if chain == nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Chain not found"})
+		return
+	}
+
+	chain.Mempool.AddTransaction(tx)
+
+	// Broadcast to all validators through P2P
+	p2p.GetP2PNode().BroadcastMessage(p2p.Message{
+		Type: "TASK_DELEGATION",
+		Data: tx,
+	})
+
+	c.JSON(http.StatusOK, gin.H{"message": "Task submitted for delegation"})
+}
+
+// SubmitWorkReview submits completed work for review
+func SubmitWorkReview(c *gin.Context) {
+	chainID := c.Param("chainId")
+	var work struct {
+		TaskID      string `json:"task_id"`
+		Content     string `json:"content"`
+		SubmittedBy string `json:"submitted_by"`
+	}
+
+	if err := c.BindJSON(&work); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Create transaction for work review
+	tx := core.Transaction{
+		Type:    "WORK_REVIEW",
+		Content: work.Content,
+		ChainID: chainID,
+		From:    work.SubmittedBy,
+	}
+
+	// Get chain and add to mempool
+	chain := core.GetChain(chainID)
+	if chain == nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Chain not found"})
+		return
+	}
+
+	chain.Mempool.AddTransaction(tx)
+
+	// Broadcast to all validators through P2P
+	p2p.GetP2PNode().BroadcastMessage(p2p.Message{
+		Type: "WORK_REVIEW",
+		Data: tx,
+	})
+
+	c.JSON(http.StatusOK, gin.H{"message": "Work submitted for review"})
+}
+
+// ProposeRewardDistribution proposes how to distribute rewards for completed work
+func ProposeRewardDistribution(c *gin.Context) {
+	chainID := c.Param("chainId")
+	var proposal struct {
+		TaskID       string   `json:"task_id"`
+		TotalReward  float64  `json:"total_reward"`
+		Contributors []string `json:"contributors"`
+	}
+
+	if err := c.BindJSON(&proposal); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Create transaction for reward distribution
+	tx := core.Transaction{
+		Type:    "REWARD_DISTRIBUTION",
+		Content: fmt.Sprintf("Task: %s, Reward: %f", proposal.TaskID, proposal.TotalReward),
+		ChainID: chainID,
+	}
+
+	// Get chain and add to mempool
+	chain := core.GetChain(chainID)
+	if chain == nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Chain not found"})
+		return
+	}
+
+	chain.Mempool.AddTransaction(tx)
+
+	// Broadcast to all validators through P2P
+	p2p.GetP2PNode().BroadcastMessage(p2p.Message{
+		Type: "REWARD_DISTRIBUTION",
+		Data: map[string]interface{}{
+			"transaction":  tx,
+			"contributors": proposal.Contributors,
+			"totalReward":  proposal.TotalReward,
+		},
+	})
+
+	c.JSON(http.StatusOK, gin.H{"message": "Reward distribution proposed"})
 }
