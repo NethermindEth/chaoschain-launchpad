@@ -9,7 +9,7 @@ import (
 func chainIDMiddleware(chainID string) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		// First try from header, fallback to default chainID
-		reqChainID := c.GetHeader("X-Chain-ID")
+		reqChainID := c.GetHeader("X-Chain-Id")
 		if reqChainID == "" {
 			reqChainID = chainID // Use default if not specified
 		}

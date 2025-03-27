@@ -48,25 +48,25 @@ func NewValidator(id, name string, traits []string, style string, influences []s
 		GenesisPrompt: genesisPrompt,
 	}
 
-	// Connect to NATS
-	nc, err := nats.Connect("nats://localhost:4223")
-	if err != nil {
-		log.Printf("Validator failed to connect to NATS: %v", err)
-		return v
+	validatorMu.Lock()
+	if validators[id] == nil {
+		validators[id] = make(map[string]*Validator)
+
+		validators[id][id] = v
 	}
+	validatorMu.Unlock()
 
 	// Subscribe to block discussion trigger
-	_, err = nc.Subscribe("BLOCK_DISCUSSION_TRIGGER", func(msg *nats.Msg) {
+	// Subscribe to the BLOCK_DISCUSSION_TRIGGER events via NATS.
+	if _, err := core.NatsBrokerInstance.Subscribe("BLOCK_DISCUSSION_TRIGGER", func(m *nats.Msg) {
 		var block core.Block
-		if err := json.Unmarshal(msg.Data, &block); err != nil {
-			log.Printf("Error unmarshalling block: %v", err)
+		if err := json.Unmarshal(m.Data, &block); err != nil {
+			log.Printf("Error unmarshalling block in discussion trigger: %v", err)
 			return
 		}
-		// Start discussion about the block
-		go consensus.StartBlockDiscussion(v.ID, &block, v.Traits, v.Name)
-	})
-
-	if err != nil {
+		log.Printf("Received BLOCK_DISCUSSION_TRIGGER event for block %d from NATS", block.Height)
+		go consensus.StartBlockDiscussion(id, &block, traits, name)
+	}); err != nil {
 		log.Printf("Validator failed to subscribe to BLOCK_DISCUSSION_TRIGGER on NATS: %v", err)
 	}
 

@@ -236,7 +236,8 @@ func StartBlockDiscussion(validatorID string, block *core.Block, traits []string
 		if err != nil {
 			fmt.Println("Error marshalling discussion for NATS:", err)
 		} else {
-			if err := core.NatsBrokerInstance.Publish("AGENT_DISCUSSION", discussionData); err != nil {
+			// blockSubject := fmt.Sprintf("BLOCK_DISCUSSION_TRIGGER.%s", block.Hash())
+			if err := core.NatsBrokerInstance.Publish("BLOCK_DISCUSSION_TRIGGER", discussionData); err != nil {
 				fmt.Println("Error publishing discussion to NATS:", err)
 			}
 		}
@@ -305,7 +306,8 @@ func StartBlockDiscussion(validatorID string, block *core.Block, traits []string
 	if err != nil {
 		fmt.Println("Error marshalling final vote for NATS:", err)
 	} else {
-		if err := core.NatsBrokerInstance.Publish("AGENT_VOTE", finalDiscussionData); err != nil {
+		voteSubject := fmt.Sprintf("AGENT_VOTE.%s", block.Hash())
+		if err := core.NatsBrokerInstance.Publish(voteSubject, finalDiscussionData); err != nil {
 			fmt.Println("Error publishing final vote to NATS:", err)
 		}
 	}

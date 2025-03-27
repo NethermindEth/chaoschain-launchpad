@@ -39,15 +39,6 @@ func main() {
 	// Initialize chain-specific components
 	core.InitBlockchain(*chainID, mempool.GetMempool(*chainID), "Default genesis prompt", 1000)
 
-	// Initialize EigenDA service
-	log.Printf("Initializing EigenDA service with NATS URL: %s", *nats)
-	if err := da.SetupGlobalDAService(*nats); err != nil {
-		log.Printf("Warning: Failed to initialize EigenDA service: %v", err)
-		// Continue without EigenDA service
-	} else {
-		log.Println("EigenDA service initialized successfully")
-		defer da.CloseGlobalDAService()
-	}
 
 	// Register this node with the chain
 	chain := core.GetChain(*chainID)
@@ -64,4 +55,15 @@ func main() {
 	router := gin.New()
 	api.SetupRoutes(router, *chainID)
 	log.Fatal(router.Run(fmt.Sprintf(":%d", *apiPort)))
+
+
+	// Initialize EigenDA service
+	log.Printf("Initializing EigenDA service with NATS URL: %s", *nats)
+	if err := da.SetupGlobalDAService(*nats); err != nil {
+		log.Printf("Warning: Failed to initialize EigenDA service: %v", err)
+		// Continue without EigenDA service
+	} else {
+		log.Println("EigenDA service initialized successfully")
+		defer da.CloseGlobalDAService()
+	}
 }

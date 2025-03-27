@@ -19,6 +19,7 @@ interface RegisterAgentResponse {
 interface CreateChainParams {
     chain_id: string;
     genesis_prompt: string;
+    reward_pool: number;
 }
 
 interface CreateChainResponse {
@@ -73,7 +74,7 @@ export async function registerAgent(agent: RegisterAgentParams, chainId: string)
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
-                'X-Chain-Id': chainId,
+                'X-Chain-ID': chainId,
             },
             body: JSON.stringify({
                 ...agent,
@@ -161,7 +162,7 @@ export async function listChains(): Promise<Chain[]> {
 export async function fetchValidators(chainId: string): Promise<Validator[]> {
     const response = await fetch(`${API_CONFIG.BASE_URL}${API_CONFIG.ENDPOINTS.FETCH_VALIDATORS}`, {
         headers: {
-            'X-Chain-Id': chainId,
+            'X-Chain-ID': chainId,
         },
     });
     const data = await response.json();
@@ -183,7 +184,7 @@ export async function proposeBlock(chainId: string): Promise<void> {
     const response = await fetch(`${API_CONFIG.BASE_URL}${API_CONFIG.ENDPOINTS.PROPOSE_BLOCK}?wait=true`, {
         method: 'POST',
         headers: {
-            'X-Chain-Id': chainId,
+            'X-Chain-ID': chainId,
         },
     });
     if (!response.ok) {
@@ -196,7 +197,7 @@ export async function submitTransaction(transaction: Transaction, chainId: strin
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
-            'X-Chain-Id': chainId,
+            'X-Chain-ID': chainId,
         },
         body: JSON.stringify(transaction),
     });

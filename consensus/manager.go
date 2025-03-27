@@ -124,7 +124,7 @@ func (cm *ConsensusManager) runConsensusProcess() {
 	time.Sleep(totalTime)
 
 	// Add additional buffer time for last votes to arrive
-	time.Sleep(5 * time.Second) // Buffer for vote collection
+	time.Sleep(30 * time.Second) // Buffer for vote collection
 
 	// Move to finalization phase
 	cm.activeConsensus.mu.Lock()

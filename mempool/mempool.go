@@ -13,6 +13,9 @@ var (
 	mempoolMu sync.RWMutex
 )
 
+// Ensure Mempool implements MempoolInterface
+var _ core.MempoolInterface = (*Mempool)(nil)
+
 // Mempool stores pending transactions before they are added to a block
 type Mempool struct {
 	mu                       sync.Mutex
@@ -56,6 +59,18 @@ func GetMempool(chainID string) *Mempool {
 	return mempools[chainID]
 }
 
+// GetPendingTransactions returns all pending transactions
+func (mp *Mempool) GetPendingTransactions() []core.Transaction {
+	mp.mu.Lock()
+	defer mp.mu.Unlock()
+
+	txs := make([]core.Transaction, 0, len(mp.transactions))
+	for _, tx := range mp.transactions {
+		txs = append(txs, tx)
+	}
+	return txs
+}
+
 // AddTransaction adds a new transaction to the mempool if valid
 func (mp *Mempool) AddTransaction(tx interface{}) bool {
 	transaction, ok := tx.(core.Transaction)
@@ -78,18 +93,6 @@ func (mp *Mempool) AddTransaction(tx interface{}) bool {
 
 	mp.transactions[transaction.Signature] = transaction
 	return true
-}
-
-// GetPendingTransactions returns all pending transactions
-func (mp *Mempool) GetPendingTransactions() []core.Transaction {
-	mp.mu.Lock()
-	defer mp.mu.Unlock()
-
-	txs := make([]core.Transaction, 0, len(mp.transactions))
-	for _, tx := range mp.transactions {
-		txs = append(txs, tx)
-	}
-	return txs
 }
 
 // RemoveTransaction removes a transaction once it's included in a block
