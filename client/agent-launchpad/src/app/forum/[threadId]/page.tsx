@@ -30,7 +30,29 @@ interface Validator {
     Name: string;
 }
 
+// Helper function to parse and format text with @ mentions
+const formatMessageWithMentions = (message: string) => {
+  // Split the message by @ symbol and process each part
+  const parts = message.split(/(\|@[^|]+\|)/g);
+  return parts.map((part, index) => {
+    if (part.startsWith('|@') && part.endsWith('|')) {
+      // Style for @ mentions
+      return (
+        <span 
+          key={index}
+          className="inline-flex items-center px-2 py-0.5 mx-0.5 rounded-full text-xs font-medium bg-indigo-500 bg-opacity-20 border border-indigo-500 text-white"
+        >
+          {part.slice(1, -1)}
+        </span>
+      );
+    }
+    return part;
+  });
+};
+
 export default function ThreadDetailPage() {
+  // Track WebSocket connection status
+  const wsConnectedRef = useRef(false);
   const params = useParams();
   const chainId = typeof params.chainId === 'string' ? params.chainId : "";
   const searchParams = useSearchParams();
@@ -60,20 +82,32 @@ export default function ThreadDetailPage() {
   };
 
   useEffect(() => {
-    // Connect to WebSocket
-    wsService.connect();
+    // Only connect if not already connected
+    if (!wsConnectedRef.current) {
+      wsService.connect();
+      wsConnectedRef.current = true;
+    }
 
     // AgentVote handler with deduplication.
     const handleAgentVote = (payload: AgentVote) => {
       // Create a unique id (using validatorId and timestamp).
-      const uniqueId = `${payload.validatorId}-${payload.timestamp}`;
+      const uniqueId = `${payload.validatorId}-${payload.timestamp}-${payload.round}`;
       if (receivedVotes.current.has(uniqueId)) {
         // Already processed this vote.
         return;
       }
       receivedVotes.current.add(uniqueId);
       console.log("AGENT_VOTE received:", payload);
-      setReplies(prev => [...prev, payload]);
+      setReplies(prev => {
+        // Check if this exact message already exists
+        const exists = prev.some(reply => 
+          reply.validatorId === payload.validatorId && 
+          reply.timestamp === payload.timestamp &&
+          reply.round === payload.round
+        );
+        if (exists) return prev;
+        return [...prev, payload];
+      });
     };
 
     const handleVotingResult = (payload: VotingResult) => {
@@ -119,10 +153,15 @@ export default function ThreadDetailPage() {
       wsService.unsubscribe("VOTING_RESULT", handleVotingResult);
       wsService.unsubscribe("BLOCK_VERDICT", handleBlockVerdict);
 
-      // Reset our refs on unmount, so that if the component mounts again, subscriptions are added once.
+      // Reset our refs on unmount
       subscribedRef.current.agentVote = false;
       subscribedRef.current.votingResult = false;
       subscribedRef.current.blockVerdict = false;
+      wsConnectedRef.current = false;
+      receivedVotes.current.clear();
+      
+      // Disconnect WebSocket
+      wsService.disconnect();
     };
   }, [chainId]);
 
@@ -219,17 +258,17 @@ export default function ThreadDetailPage() {
                                             </div>
                                         </div>
                                         <div className={`px-4 py-2 rounded-full text-sm font-semibold ${
-                                            reply.type === 'support' 
-                                                ? 'bg-green-600 text-green-100' 
-                                                : reply.type === 'oppose'
-                                                ? 'bg-red-600 text-red-100'
-                                                : 'bg-blue-600 text-blue-100'
+                                            reply.type.toLowerCase() === 'support' 
+                                                ? 'bg-emerald-500 bg-opacity-20 border-2 border-emerald-500 text-white' 
+                                                : reply.type.toLowerCase() === 'oppose'
+                                                ? 'bg-rose-500 bg-opacity-20 border-2 border-rose-500 text-white'
+                                                : 'bg-yellow-500 bg-opacity-20 border border-yellow-500 text-white'
                                         }`}>
                                             {reply.type.toUpperCase()}
                                         </div>
                                     </div>
                                     <div className="mt-4 text-gray-300 whitespace-pre-line">
-                                        {reply.message}
+                                        {formatMessageWithMentions(reply.message)}
                                     </div>
                                 </div>
                             ))}

@@ -15,10 +15,21 @@ var (
 
 // Mempool stores pending transactions before they are added to a block
 type Mempool struct {
-	mu            sync.Mutex
-	transactions  map[string]core.Transaction
-	expirationSec int64  // Transactions expire after X seconds
-	chainID       string // Add chainID to mempool
+	mu                       sync.Mutex
+	transactions             map[string]core.Transaction
+	expirationSec            int64  // Transactions expire after X seconds
+	chainID                  string // Add chainID to mempool
+	EphemeralBlockHashes     []string
+	EphemeralVotes           []EphemeralVote
+	EphemeralAgentIdentities map[string]string
+}
+
+// EphemeralVote represents a temporary vote stored in the mempool
+type EphemeralVote struct {
+	ID           string `json:"id"` // Unique identifier for the vote
+	AgentID      string `json:"agentId"`
+	VoteDecision string `json:"voteDecision"`
+	Timestamp    int64  `json:"timestamp"`
 }
 
 // Initialize mempool separately
@@ -27,9 +38,12 @@ func InitMempool(chainID string, timeout int64) *Mempool {
 	defer mempoolMu.Unlock()
 
 	mp := &Mempool{
-		transactions:  make(map[string]core.Transaction),
-		expirationSec: timeout,
-		chainID:       chainID,
+		transactions:             make(map[string]core.Transaction),
+		expirationSec:            timeout,
+		chainID:                  chainID,
+		EphemeralBlockHashes:     []string{},
+		EphemeralVotes:           []EphemeralVote{},
+		EphemeralAgentIdentities: make(map[string]string),
 	}
 	mempools[chainID] = mp
 	return mp
@@ -108,8 +122,20 @@ func (mp *Mempool) Size() int {
 // NewMempool creates a new mempool instance
 func NewMempool(chainID string) *Mempool {
 	return &Mempool{
-		transactions:  make(map[string]core.Transaction),
-		expirationSec: 3600, // 1 hour default
-		chainID:       chainID,
+		transactions:             make(map[string]core.Transaction),
+		expirationSec:            3600, // 1 hour default
+		chainID:                  chainID,
+		EphemeralBlockHashes:     []string{},
+		EphemeralVotes:           []EphemeralVote{},
+		EphemeralAgentIdentities: make(map[string]string),
 	}
+}
+
+// ClearTemporaryData resets temporary data after block finalization
+func (mp *Mempool) ClearTemporaryData() {
+	mp.mu.Lock()
+	defer mp.mu.Unlock()
+	mp.EphemeralBlockHashes = []string{}
+	mp.EphemeralVotes = []EphemeralVote{}
+	mp.EphemeralAgentIdentities = make(map[string]string)
 }

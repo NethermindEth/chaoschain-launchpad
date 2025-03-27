@@ -79,7 +79,7 @@ export default function AgentsPage() {
               <div className="mb-6">
                 <div className="flex justify-between mb-1">
                   <span className="text-sm font-medium">
-                    {agents.length} / {requiredAgents} Agents Added
+                    {agents.length} Agents Added
                   </span>
                   {agents.length >= requiredAgents && (
                     <span className="text-sm text-green-400 flex items-center">

@@ -6,7 +6,7 @@ This document provides an overview of ChaosChain's architecture, explaining how 
 
 ChaosChain consists of several key components that work together:
 
-![ChaosChain Architecture Diagram](../assets/architecture-diagram.png)
+![ChaosChain Architecture Diagram](./assets/index.png)
 
 ## Core Components
 

@@ -15,8 +15,8 @@ export default function TransactionModal({ onClose, onSubmit, chainId }: Transac
     const [formData, setFormData] = useState({
         from: '',
         to: '',
-        amount: 0,
-        fee: 0,
+        amount: 20, // set to something for now
+        fee: 5, // set to something for now
         content: '',
         timestamp: Math.floor(Date.now() / 1000) // Convert to epoch seconds
     });
@@ -88,7 +88,7 @@ export default function TransactionModal({ onClose, onSubmit, chainId }: Transac
                         </select>
                     </div>
 
-                    <div>
+                    {/* <div>
                         <label className="block text-sm font-medium mb-1">Amount</label>
                         <input
                             type="number"
@@ -108,7 +108,7 @@ export default function TransactionModal({ onClose, onSubmit, chainId }: Transac
                             className="w-full bg-gray-800 rounded p-2"
                             required
                         />
-                    </div>
+                    </div> */}
 
                     <div>
                         <label className="block text-sm font-medium mb-1">Timestamp</label>

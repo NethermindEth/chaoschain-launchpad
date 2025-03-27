@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
@@ -14,9 +15,11 @@ import (
 
 	"hash/crc32"
 
+	"github.com/NethermindEth/chaoschain-launchpad/ai"
 	"github.com/NethermindEth/chaoschain-launchpad/cmd/node"
 	"github.com/NethermindEth/chaoschain-launchpad/communication"
 	"github.com/NethermindEth/chaoschain-launchpad/core"
+	da "github.com/NethermindEth/chaoschain-launchpad/da_layer"
 	"github.com/NethermindEth/chaoschain-launchpad/validator"
 	cfg "github.com/cometbft/cometbft/config"
 	"github.com/cometbft/cometbft/p2p"
@@ -425,8 +428,77 @@ func GetAllThreads(c *gin.Context) {
 }
 
 type CreateChainRequest struct {
-	ChainID string `json:"chain_id" binding:"required"`
+	ChainID       string `json:"chain_id" binding:"required"`
+	GenesisPrompt string `json:"genesis_prompt" binding:"required"`
 }
+
+func loadSampleAgents(genesisPrompt string) ([]core.Agent, error) {
+	filename, err := ai.GenerateAgents(genesisPrompt)
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate agents: %v", err)
+	}
+	filename = "examples/" + filename
+
+	// Read the JSON file
+	fileContent, err := os.ReadFile(filename)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read %s: %v", filename, err)
+	}
+
+	var agents []core.Agent
+	if err := json.Unmarshal(fileContent, &agents); err != nil {
+		return nil, fmt.Errorf("failed to parse %s: %v", filename, err)
+	}
+
+	return agents, nil
+}
+
+// TODO: Implement this
+// func registerAgent(chainID string, agent core.Agent, bootstrapPort int) error {
+// 	// Create a new node for this agent
+// 	newPort := findAvailablePort()
+// 	agentNode := node.NewNode(node.NodeConfig{
+// 		ChainConfig: p2p.ChainConfig{
+// 			ChainID: chainID,
+// 			P2PPort: newPort,
+// 			APIPort: findAvailableAPIPort(),
+// 		},
+// 		BootstrapNode: fmt.Sprintf("localhost:%d", bootstrapPort),
+// 	})
+
+// 	if err := agentNode.Start(); err != nil {
+// 		return fmt.Errorf("failed to start agent node: %v", err)
+// 	}
+
+// 	// Register the new node with the chain
+// 	chain := core.GetChain(chainID)
+// 	addr := fmt.Sprintf("localhost:%d", newPort)
+// 	chain.RegisterNode(addr, agentNode.GetP2PNode())
+
+// 	if agent.Role == "validator" {
+// 		validatorInstance := validator.NewValidator(
+// 			agent.ID,
+// 			agent.Name,
+// 			agent.Traits,
+// 			agent.Style,
+// 			agent.Influences,
+// 			agentNode.GetP2PNode(),
+// 		)
+
+// 		// Register validator
+// 		registry.RegisterValidator(chainID, agent.ID, validatorInstance)
+
+// 		// Broadcast WebSocket event
+// 		communication.BroadcastEvent(communication.EventAgentRegistered, map[string]interface{}{
+// 			"agent":     agent,
+// 			"chainId":   chainID,
+// 			"nodePort":  newPort,
+// 			"timestamp": time.Now(),
+// 		})
+// 	}
+
+// 	return nil
+// }
 
 // CreateChain creates a new blockchain instance
 func CreateChain(c *gin.Context) {
@@ -563,6 +635,33 @@ func CreateChain(c *gin.Context) {
 		P2PPort:   func() int { p, _ := strconv.Atoi(config.P2P.ListenAddress[10:]); return p }(),
 	})
 
+	communication.BroadcastEvent(communication.EventChainCreated, map[string]interface{}{
+		"chainId":   req.ChainID,
+		"timestamp": time.Now(),
+	})
+
+	// TODO: Register sample agents based on the genesis prompt
+	// agents, err := loadSampleAgents(req.GenesisPrompt)
+	// if err != nil {
+	// 	c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to load sample agents"})
+	// 	return
+	// }
+
+	// log.Printf("Loaded %d sample agents", len(agents))
+
+	// // Register agents synchronously
+	// for _, agent := range agents {
+	// 	// Add a small delay between registrations for better UX
+	// 	time.Sleep(500 * time.Millisecond)
+
+	// 	if err := registerAgent(req.ChainID, agent, p2pPort); err != nil {
+	// 		log.Printf("Failed to register agent %s: %v", agent.ID, err)
+	// 		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to register agent %s", agent.ID)})
+	// 		return
+	// 	}
+	// 	log.Printf("Successfully registered agent: %s (%s)", agent.Name, agent.ID)
+	// }
+
 	c.JSON(http.StatusCreated, gin.H{
 		"message":  "Chain created successfully",
 		"chain_id": req.ChainID,
@@ -570,6 +669,7 @@ func CreateChain(c *gin.Context) {
 			"p2p_port": func() int { p, _ := strconv.Atoi(config.P2P.ListenAddress[10:]); return p }(),
 			"rpc_port": func() int { p, _ := strconv.Atoi(config.RPC.ListenAddress[10:]); return p }(),
 		},
+		// "registered_agents": len(agents),
 	})
 }
 
@@ -593,4 +693,109 @@ func validatorExists(validators []*types.Validator, agentID string) bool {
 func fileExists(filename string) bool {
 	_, err := os.Stat(filename)
 	return !os.IsNotExist(err)
+}
+
+// GetBlockDiscussions returns the discussions for a specific block by hash
+func GetBlockDiscussions(c *gin.Context) {
+	chainID := c.GetString("chainID")
+	blockHash := c.Param("blockHash")
+
+	// Get the blob reference for this block
+	ref, found := da.GetBlobReferenceByBlockHash(chainID, blockHash)
+	if !found {
+		c.JSON(http.StatusNotFound, gin.H{"error": "No discussions found for this block"})
+		return
+	}
+
+	// Retrieve the data from EigenDA
+	offchainData, err := da.GetOffchainData(ref.BlobID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to retrieve discussions: %v", err)})
+		return
+	}
+
+	// Format timestamps for better readability in the response
+	formattedDiscussions := make([]map[string]interface{}, len(offchainData.Discussions))
+	for i, d := range offchainData.Discussions {
+		formattedDiscussions[i] = map[string]interface{}{
+			"id":          d.ID,
+			"validatorId": d.ValidatorID,
+			"message":     d.Message,
+			"timestamp":   d.Timestamp.Format(time.RFC3339),
+			"type":        d.Type,
+			"round":       d.Round,
+		}
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"blockHash":   blockHash,
+		"blockHeight": ref.BlockHeight,
+		"discussions": formattedDiscussions,
+		"votes":       offchainData.Votes,
+		"outcome":     offchainData.Outcome,
+		"agents":      offchainData.AgentIdentities,
+		"timestamp":   time.Unix(offchainData.Timestamp, 0).Format(time.RFC3339),
+	})
+}
+
+// GetBlockDiscussionsByHeight returns the discussions for a specific block by height
+func GetBlockDiscussionsByHeight(c *gin.Context) {
+	chainID := c.GetString("chainID")
+	heightStr := c.Param("height")
+
+	height, err := strconv.Atoi(heightStr)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid block height"})
+		return
+	}
+
+	// Get the blob reference for this block
+	ref, found := da.GetBlobReferenceByHeight(chainID, height)
+	if !found {
+		c.JSON(http.StatusNotFound, gin.H{"error": "No discussions found for this block height"})
+		return
+	}
+
+	// Retrieve the data from EigenDA
+	offchainData, err := da.GetOffchainData(ref.BlobID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to retrieve discussions: %v", err)})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"blockHash":   ref.BlockHash,
+		"blockHeight": height,
+		"discussions": offchainData.Discussions,
+		"votes":       offchainData.Votes,
+		"outcome":     offchainData.Outcome,
+		"agents":      offchainData.AgentIdentities,
+		"timestamp":   offchainData.Timestamp,
+	})
+}
+
+// ListBlockDiscussions returns a list of all blocks with discussions for a chain
+func ListBlockDiscussions(c *gin.Context) {
+	chainID := c.GetString("chainID")
+
+	// Get all blob references for this chain
+	refs := da.GetBlobReferencesForChain(chainID)
+	if len(refs) == 0 {
+		c.JSON(http.StatusOK, gin.H{"blocks": []interface{}{}})
+		return
+	}
+
+	// Create a summary for each block
+	blocks := make([]map[string]interface{}, len(refs))
+	for i, ref := range refs {
+		blocks[i] = map[string]interface{}{
+			"blockHash":   ref.BlockHash,
+			"blockHeight": ref.BlockHeight,
+			"outcome":     ref.Outcome,
+			"timestamp":   ref.Timestamp,
+			"blobId":      ref.BlobID,
+		}
+	}
+
+	c.JSON(http.StatusOK, gin.H{"blocks": blocks})
 }
