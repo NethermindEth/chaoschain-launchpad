@@ -18,7 +18,8 @@ export default function TransactionModal({ onClose, onSubmit, chainId }: Transac
         amount: 20, // set to something for now
         fee: 5, // set to something for now
         content: '',
-        timestamp: Math.floor(Date.now() / 1000) // Convert to epoch seconds
+        timestamp: Math.floor(Date.now() / 1000), // Convert to epoch seconds
+        reward: 0 // Add reward field with default value 0
     });
 
     useEffect(() => {
@@ -129,6 +130,21 @@ export default function TransactionModal({ onClose, onSubmit, chainId }: Transac
                             required
                             rows={3}
                         />
+                    </div>
+
+                    <div>
+                        <label className="block text-sm font-medium mb-1">Reward Amount</label>
+                        <input
+                            type="number"
+                            value={formData.reward}
+                            onChange={(e) => setFormData({...formData, reward: parseFloat(e.target.value)})}
+                            className="w-full bg-gray-800 rounded p-2"
+                            min="0"
+                            step="0.01"
+                        />
+                        <p className="text-xs text-gray-400 mt-1">
+                            Specify the reward amount for this transaction (optional)
+                        </p>
                     </div>
 
                     <button

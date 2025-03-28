@@ -141,6 +141,9 @@ func StartCollaborativeTaskBreakdown(chainID string, block *core.Block, transact
 			prevRoundsContext = getPreviousTaskBreakdownRoundsContext(results, round-1)
 		}
 
+		// Create done channel for this round
+		done := make(chan struct{})
+
 		// Have each validator propose a breakdown
 		var wg sync.WaitGroup
 		for _, validator := range validators {
@@ -150,39 +153,78 @@ func StartCollaborativeTaskBreakdown(chainID string, block *core.Block, transact
 				proposal := generateTaskBreakdownProposal(v, round, prevRoundsContext, results)
 				select {
 				case proposalChannel <- proposal:
+				case <-done: // Channel has been closed, don't try to send
+					log.Printf("Skipping proposal for %s in round %d as collection has ended", v.Name, round)
+					return
 				case <-time.After(30 * time.Second):
 					log.Printf("Timed out waiting to submit proposal for %s in round %d", v.Name, round)
 				}
 			}(validator)
 		}
 
-		// Close the proposal channel when all validators are done
+		// Start a collector for this round
+		proposals := make(map[string]TaskBreakdownProposal)
+
+		// Setup collector in a goroutine
+		collectorDone := make(chan struct{})
 		go func() {
-			wg.Wait()
-			close(proposalChannel)
+			defer close(collectorDone)
+
+			// Use timeout for the entire round's collection
+			roundTimeout := time.After(45 * time.Second)
+
+		collectLoop:
+			for {
+				select {
+				case proposal, ok := <-proposalChannel:
+					if !ok {
+						// Channel was closed (shouldn't happen)
+						break collectLoop
+					}
+					proposals[proposal.ValidatorID] = proposal
+
+					// Check if we've collected from all validators
+					if len(proposals) >= len(validators) {
+						break collectLoop
+					}
+				case <-roundTimeout:
+					log.Printf("Round %d timed out waiting for all validators", round)
+					break collectLoop
+				}
+			}
+
+			// Signal validators to stop sending proposals for this round
+			close(done)
+
+			// Store the proposals in the results
+			for validatorID, proposal := range proposals {
+				results.DiscussionHistory[round-1].Proposals[validatorID] = proposal
+				results.ValidatorVotes[validatorID] = proposal.Subtasks
+
+				// Broadcast for UI
+				communication.BroadcastEvent(communication.EventTaskBreakdown, map[string]interface{}{
+					"validatorId":   proposal.ValidatorID,
+					"validatorName": proposal.ValidatorName,
+					"subtasks":      proposal.Subtasks,
+					"reasoning":     proposal.Reasoning,
+					"round":         round,
+					"blockHeight":   block.Height,
+					"timestamp":     time.Now(),
+				})
+			}
+
+			log.Printf("Collected %d proposals for round %d",
+				len(results.DiscussionHistory[round-1].Proposals), round)
 		}()
 
-		// Collect proposals from the channel
-		for proposal := range proposalChannel {
-			results.DiscussionHistory[round-1].Proposals[proposal.ValidatorID] = proposal
+		// Wait for the goroutines to finish their attempt to send
+		wg.Wait()
 
-			// Also store in validator votes
-			results.ValidatorVotes[proposal.ValidatorID] = proposal.Subtasks
+		// Wait for the collector to finish
+		<-collectorDone
 
-			// Broadcast for UI
-			communication.BroadcastEvent(communication.EventTaskBreakdown, map[string]interface{}{
-				"validatorId":   proposal.ValidatorID,
-				"validatorName": proposal.ValidatorName,
-				"subtasks":      proposal.Subtasks,
-				"reasoning":     proposal.Reasoning,
-				"round":         round,
-				"blockHeight":   block.Height,
-				"timestamp":     time.Now(),
-			})
-		}
-
-		log.Printf("Collected %d proposals for round %d",
-			len(results.DiscussionHistory[round-1].Proposals), round)
+		// Wait a moment before starting the next round
+		time.Sleep(RoundDuration)
 	}
 
 	// Consolidate into final set of subtasks

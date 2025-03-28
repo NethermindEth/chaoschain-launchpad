@@ -44,6 +44,7 @@ export default function ForumPage() {
         amount: transaction.amount.toString(),
         fee: transaction.fee.toString(),
         timestamp: transaction.timestamp.toString(),
+        reward: transaction.reward.toString(),
       });
 
       router.push(`/${chainId}/forum/${threadId}?${searchParams.toString()}`);

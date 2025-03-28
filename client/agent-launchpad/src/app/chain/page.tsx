@@ -51,6 +51,7 @@ export default function GenesisPage() {
   const [activeTab, setActiveTab] = useState("create");
   const [chainName, setChainName] = useState("");
   const [genesisPrompt, setGenesisPrompt] = useState("");
+  const [rewardPool, setRewardPool] = useState(1000); // Default value
   const [availableChains, setAvailableChains] = useState<Chain[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -89,6 +90,7 @@ export default function GenesisPage() {
       const data = await createChain({
         chain_id: chainName.toLowerCase().replace(/\s+/g, '-'),
         genesis_prompt: genesisPrompt,
+        reward_pool: rewardPool,
       });
       console.log('Chain created successfully:', data);
 
@@ -97,7 +99,7 @@ export default function GenesisPage() {
       
     } catch (error) {
       console.error('Error creating chain:', error);
-      alert(error instanceof Error ? error.message : 'Failed to create chain');
+      setError(error instanceof Error ? error.message : 'Failed to create chain');
       setIsModalOpen(false);
     }
   };
@@ -149,25 +151,45 @@ export default function GenesisPage() {
               </div>
 
               <div className="mb-6">
-                <label htmlFor="chainName" className="block text-sm font-medium mb-2">
+                <label htmlFor="genesisPrompt" className="block text-sm font-medium mb-2">
                   Genesis Prompt
                 </label>
-                <input
-                  type="text"
+                <textarea
                   id="genesisPrompt"
                   value={genesisPrompt}
                   onChange={(e) => setGenesisPrompt(e.target.value)}
                   className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-[#fe6a23] focus:border-transparent"
-                  placeholder="Give a description for the genesis node of the chain"
+                  placeholder="Describe the purpose and rules for your chain"
+                  rows={4}
                   required
                 />
+              </div>
+
+              <div className="mb-6">
+                <label htmlFor="rewardPool" className="block text-sm font-medium mb-2">
+                  Initial Reward Pool
+                </label>
+                <input
+                  type="number"
+                  id="rewardPool"
+                  value={rewardPool}
+                  onChange={(e) => setRewardPool(parseInt(e.target.value))}
+                  className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-[#fe6a23] focus:border-transparent"
+                  placeholder="Enter initial reward pool amount"
+                  min={100}
+                  max={1000000}
+                  required
+                />
+                <p className="mt-1 text-sm text-gray-400">
+                  Initial reward pool for incentivizing validators (min: 100, max: 1,000,000)
+                </p>
               </div>
               
               <button
                 type="submit"
                 className="w-full bg-gradient-to-r from-[#fd7653] to-[#feb082] text-white font-medium px-8 py-3 rounded-2xl hover:shadow-lg shadow-md transition-all duration-300 transform hover:-translate-y-0.5"
               >
-                Intialize Chaoschain
+                Initialize Chaoschain
               </button>
             </form>
           </div>

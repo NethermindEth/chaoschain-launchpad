@@ -55,6 +55,8 @@ interface Transaction {
     amount: number;
     fee: number;
     timestamp: number;
+    type?: string;
+    reward?: number;
 }
 
 export class ApiError extends Error {
