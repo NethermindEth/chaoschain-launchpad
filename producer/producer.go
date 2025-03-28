@@ -2,6 +2,7 @@ package producer
 
 import (
 	"encoding/json"
+	"fmt"
 	"log"
 	"time"
 
@@ -75,13 +76,19 @@ func (p *Producer) ProduceBlock() core.Block {
 		}
 	}
 
-	// Also broadcast block proposal over the TCP-based P2P layer.
-	// Note: p2p.GetP2PNode().BroadcastMessage sends a p2p.Message that includes the block.
-	p2p.GetP2PNode().BroadcastMessage(p2p.Message{
-		Type: "BLOCK_PROPOSAL",
-		Data: block,
-	})
-	log.Println("Broadcasted BLOCK_PROPOSAL event via P2P layer")
+	// Create agent communication adapter for the producer
+	adapter := p2p.NewAgentCommunicationAdapter(
+		p.p2pNode,
+		fmt.Sprintf("Producer-%s", p.p2pNode.GetAgentID()),
+		"producer")
+
+	// Broadcast block proposal using the enhanced agent communication system
+	adapter.BroadcastToAll(
+		"PROPOSE",
+		"BLOCK",
+		block)
+
+	log.Println("Broadcasted BLOCK_PROPOSAL event via enhanced P2P layer")
 
 	p.LastBlock = &block
 	return block

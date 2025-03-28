@@ -407,16 +407,19 @@ func (v *Validator) ProcessProposal(tx core.Transaction) string {
 
 // BroadcastResponse broadcasts validator's response to other validators
 func (v *Validator) BroadcastResponse(response string, msgType string) {
-	message := p2p.Message{
-		Type: msgType,
-		Data: map[string]interface{}{
-			"validatorId": v.ID,
-			"name":        v.Name,
-			"response":    response,
-			"timestamp":   time.Now(),
-		},
-	}
-	v.P2PNode.BroadcastMessage(message)
+	// Create a wrapped node for compatibility
+	wrappedNode := p2p.WrapNode(v.P2PNode, v.Name)
+
+	// Create the message with all required fields
+	message := wrappedNode.CreateMessage(msgType, map[string]interface{}{
+		"validatorId": v.ID,
+		"name":        v.Name,
+		"response":    response,
+		"timestamp":   time.Now(),
+	})
+
+	// Broadcast using the wrapper
+	wrappedNode.BroadcastMessage(message)
 }
 
 // HandleTaskDelegation decides whether to accept or reject a delegated task
