@@ -10,6 +10,7 @@ import (
 
 	"github.com/NethermindEth/chaoschain-launchpad/communication"
 	"github.com/NethermindEth/chaoschain-launchpad/core"
+	"github.com/NethermindEth/chaoschain-launchpad/p2p"
 )
 
 type ConsensusState int
@@ -98,6 +99,31 @@ func (cm *ConsensusManager) ProposeBlock(block *core.Block) error {
 	return nil
 }
 
+// processTasksAfterConsensus processes any task delegation transactions in the block
+func (cm *ConsensusManager) processTasksAfterConsensus(block *core.Block) {
+	taskCount := 0
+	for _, tx := range block.Txs {
+		if tx.Type == "TASK_DELEGATION" {
+			taskCount++
+			fmt.Printf("\n🔄 Processing Task #%d from Block %d:\n", taskCount, block.Height)
+			fmt.Printf("Content: %s\n", tx.Content)
+			fmt.Println("Broadcasting to validators for delegation discussion...")
+			fmt.Println("===================================")
+
+			// Broadcast task to all validators for delegation discussion
+			p2p.GetP2PNode().BroadcastMessage(p2p.Message{
+				Type: "task_delegation",
+				Data: tx,
+			})
+		}
+	}
+
+	if taskCount > 0 {
+		fmt.Printf("\n📦 Block %d: Processed %d tasks for delegation\n", block.Height, taskCount)
+		fmt.Println("===================================")
+	}
+}
+
 // runConsensusProcess manages the lifecycle of block consensus
 func (cm *ConsensusManager) runConsensusProcess() {
 	// Move to discussion phase
@@ -182,6 +208,8 @@ func (cm *ConsensusManager) runConsensusProcess() {
 				bc.Mempool.AddTransaction(tx)
 			}
 		} else {
+			// Process tasks after successful consensus
+			cm.processTasksAfterConsensus(cm.activeConsensus.Block)
 			// Clear processed transactions from mempool
 			bc.Mempool.CleanupExpiredTransactions()
 		}
@@ -199,9 +227,6 @@ func (cm *ConsensusManager) runConsensusProcess() {
 		Support: support,
 		Oppose:  oppose,
 	}
-
-	// Broadcast verdict
-	communication.BroadcastEvent(communication.EventBlockVerdict, result)
 
 	// Broadcast detailed voting result
 	votingResult := struct {

@@ -13,13 +13,18 @@ type WSEvent struct {
 }
 
 const (
-	EventBlockVerdict    = "BLOCK_VERDICT"
-	EventAgentVote       = "AGENT_VOTE"
-	EventVotingResult    = "VOTING_RESULT"
-	EventAgentAlliance   = "AGENT_ALLIANCE"
-	EventAgentRegistered = "AGENT_REGISTERED"
-	EventNewTransaction  = "NEW_TRANSACTION"
-	EventChainCreated    = "CHAIN_CREATED"
+	EventBlockVerdict        = "BLOCK_VERDICT"
+	EventAgentVote           = "AGENT_VOTE"
+	EventVotingResult        = "VOTING_RESULT"
+	EventAgentAlliance       = "AGENT_ALLIANCE"
+	EventAgentRegistered     = "AGENT_REGISTERED"
+	EventNewTransaction      = "NEW_TRANSACTION"
+	EventChainCreated        = "CHAIN_CREATED"
+	EventTaskBreakdown       = "TASK_BREAKDOWN"
+	EventTaskBreakdownFinal  = "TASK_BREAKDOWN_FINAL"
+	EventTaskDelegation      = "TASK_DELEGATION"
+	EventTaskDelegationFinal = "TASK_DELEGATION_FINAL"
+	EventTaskAssignment      = "TASK_ASSIGNMENT"
 )
 
 type WebSocketManager struct {

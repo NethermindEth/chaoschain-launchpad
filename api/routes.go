@@ -44,6 +44,7 @@ func SetupRoutes(router *gin.Engine, chainID string) {
 		api.GET("/chain/status", handlers.GetNetworkStatus)
 		api.POST("/transactions", handlers.SubmitTransaction)
 		api.GET("/validators", handlers.GetValidators)
+		api.GET("/validators/:agentID/balance", handlers.GetValidatorBalance)
 		api.GET("/social/:agentID", handlers.GetSocialStatus)
 		api.POST("/validators/:agentID/influences", handlers.AddInfluence)
 		api.POST("/validators/:agentID/relationships", handlers.UpdateRelationship)

@@ -345,22 +345,61 @@ func ProposeBlock(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Missing chain ID"})
 		return
 	}
-	log.Printf("her 1")
+
+	// Get optional reward amount from query parameters
+	rewardAmountStr := c.DefaultQuery("reward", "0")
+	rewardAmount, err := strconv.ParseFloat(rewardAmountStr, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid reward amount"})
+		return
+	}
+
 	waitForConsensus := c.DefaultQuery("wait", "false") == "true"
-	log.Printf("her 2")
+
 	bc := core.GetChain(chainID)
 	if bc == nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Chain not found"})
 		return
 	}
-	log.Printf("her 3")
+
+	// If a reward is specified, check if it's valid
+	if rewardAmount > 0 {
+		// Get chain funds
+		chainFunds := core.GetChainFunds(chainID)
+		if chainFunds == nil {
+			// Initialize with the chain's reward pool if not already initialized
+			chainFunds = core.InitializeChainFunds(chainID, float64(bc.RewardPool))
+		}
+
+		// Check if there are enough funds in the pool
+		if rewardAmount > chainFunds.TotalFunds {
+			c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("Insufficient funds in reward pool. Available: %.2f, Requested: %.2f", chainFunds.TotalFunds, rewardAmount)})
+			return
+		}
+
+		// If we have a reward and funds are available, create a reward transaction
+		proposerID := c.DefaultQuery("proposer", "SYSTEM")
+
+		// By default, all reward goes to the proposer
+		recipients := make(map[string]float64)
+		recipients[proposerID] = rewardAmount
+
+		rewardTx := core.CreateRewardTransaction(proposerID, chainID, rewardAmount, recipients)
+
+		// Add to mempool
+		mp := mempool.GetMempool(chainID)
+		if mp != nil {
+			mp.AddTransaction(*rewardTx)
+			log.Printf("Added reward transaction of %.2f to mempool", rewardAmount)
+		}
+	}
 
 	block, err := bc.CreateBlock()
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	log.Printf("her 4")
+
 	// Immediately create the discussion thread for visualization.
 	// The thread ID is derived from the block's hash.
 	threadID := block.Hash()
@@ -546,6 +585,75 @@ func ProposeBlock(c *gin.Context) {
 				"oppose":    consensusResult.Oppose,
 				"thread_id": threadID,
 			})
+
+			// If consensus was accepted, trigger task breakdown and delegation process
+			if consensusResult.State == consensus.Accepted {
+				// Process all transactions in the block, including rewards
+				if err := core.ProcessBlockTransactions(block); err != nil {
+					log.Printf("Warning: Error processing block transactions: %v", err)
+				} else {
+					log.Printf("Successfully processed all transactions in block %d", block.Height)
+				}
+
+				// Extract transaction information for analysis
+				txCount := len(block.Txs)
+
+				// Only proceed with task breakdown if there are transactions to analyze
+				if txCount > 0 {
+					log.Printf("Starting collaborative task breakdown process for block %d with %d transaction(s)", block.Height, txCount)
+
+					// Format transaction data for task breakdown
+					var transactionDetails string
+					if txCount == 1 {
+						tx := block.Txs[0]
+						transactionDetails = fmt.Sprintf("Transaction details:\n- Type: %s\n- Content: %s\n- From: %s\n- To: %s\n- Amount: %.2f\n- Timestamp: %d",
+							tx.Type, tx.Content, tx.From, tx.To, tx.Amount, tx.Timestamp)
+					} else {
+						transactionDetails = "Transactions:\n"
+						for i, tx := range block.Txs {
+							transactionDetails += fmt.Sprintf("\nTransaction %d:\n- Type: %s\n- Content: %s\n- From: %s\n- To: %s\n- Amount: %.2f\n- Timestamp: %d\n",
+								i+1, tx.Type, tx.Content, tx.From, tx.To, tx.Amount, tx.Timestamp)
+						}
+					}
+
+					// Initialize task breakdown discussion thread
+					taskBreakdownID := fmt.Sprintf("task-breakdown-%s", block.Hash())
+					communication.CreateThread(taskBreakdownID, fmt.Sprintf("Task Breakdown for Block %d", block.Height), "System")
+
+					// Start collaborative task breakdown process
+					taskBreakdownResults := validator.StartCollaborativeTaskBreakdown(chainID, block, transactionDetails)
+
+					// After task breakdown is complete, start task delegation process
+					if taskBreakdownResults != nil && len(taskBreakdownResults.FinalSubtasks) > 0 {
+						log.Printf("Task breakdown completed with %d subtasks. Starting task delegation process.",
+							len(taskBreakdownResults.FinalSubtasks))
+
+						// Initialize task delegation discussion thread
+						taskDelegationID := fmt.Sprintf("task-delegation-%s", block.Hash())
+						communication.CreateThread(taskDelegationID, fmt.Sprintf("Task Delegation for Block %d", block.Height), "System")
+
+						// Start collaborative task delegation process
+						delegationResults := validator.StartCollaborativeTaskDelegation(chainID, taskBreakdownResults)
+
+						if delegationResults != nil {
+							log.Printf("Task delegation completed. %d subtasks delegated to validators.",
+								len(delegationResults.Assignments))
+
+							// Store the results in the blockchain or a persistence layer
+							// (This would be implemented in a real system)
+
+							// Notify the assigned validators of their tasks
+							validator.NotifyAssignedValidators(chainID, delegationResults)
+						} else {
+							log.Printf("Task delegation process failed or produced no assignments")
+						}
+					} else {
+						log.Printf("Task breakdown process failed or produced no subtasks")
+					}
+				} else {
+					log.Printf("No transactions in block %d, skipping task breakdown and delegation", block.Height)
+				}
+			}
 
 			// Clear temporary data after response is sent
 			mp.ClearTemporaryData()
@@ -843,43 +951,48 @@ func ListBlockDiscussions(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"blocks": blocks})
 }
 
-// SubmitTask submits a new task for delegation and discussion
+// SubmitTask initiates task delegation discussion among validators
 func SubmitTask(c *gin.Context) {
 	chainID := c.Param("chainId")
-	var task struct {
-		Content    string  `json:"content"`
-		RewardPool float64 `json:"reward_pool"`
+	var taskRequest struct {
+		Content string `json:"content"`
 	}
 
-	if err := c.BindJSON(&task); err != nil {
+	if err := c.BindJSON(&taskRequest); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
-	// Create transaction for task
-	tx := core.Transaction{
-		Type:    "TASK_DELEGATION",
-		Content: task.Content,
-		ChainID: chainID,
-		Fee:     0, // No fee for task submission
+	// Create task message
+	task := validator.TaskMessage{
+		Content:     taskRequest.Content,
+		Timestamp:   time.Now(),
+		InitiatorID: c.GetString("initiator_id"), // If available from auth middleware
 	}
 
-	// Get chain and add to mempool
+	// Get chain
 	chain := core.GetChain(chainID)
 	if chain == nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Chain not found"})
 		return
 	}
 
-	chain.Mempool.AddTransaction(tx)
+	// Broadcast to all validators through validators in the chain
+	validators := validator.GetAllValidators(chainID)
+	if len(validators) == 0 {
+		c.JSON(http.StatusNotFound, gin.H{"error": "No validators found for this chain"})
+		return
+	}
 
-	// Broadcast to all validators through P2P
-	p2p.GetP2PNode().BroadcastMessage(p2p.Message{
-		Type: "TASK_DELEGATION",
-		Data: tx,
+	// Send the task to each validator
+	for _, v := range validators {
+		v.BroadcastTaskDelegation(task)
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"message": "Task submitted for delegation discussion",
+		"task_id": task.Timestamp.Unix(), // Using timestamp as a simple task identifier
 	})
-
-	c.JSON(http.StatusOK, gin.H{"message": "Task submitted for delegation"})
 }
 
 // SubmitWorkReview submits completed work for review
@@ -963,4 +1076,53 @@ func ProposeRewardDistribution(c *gin.Context) {
 	})
 
 	c.JSON(http.StatusOK, gin.H{"message": "Reward distribution proposed"})
+}
+
+// StartCollaborativeTaskBreakdown starts a collaborative task breakdown process
+func StartCollaborativeTaskBreakdown(chainID string, block *core.Block, transactionDetails string) *validator.TaskBreakdownResults {
+	return validator.StartCollaborativeTaskBreakdown(chainID, block, transactionDetails)
+}
+
+// StartCollaborativeTaskDelegation starts a collaborative task delegation process
+func StartCollaborativeTaskDelegation(chainID string, taskBreakdown *validator.TaskBreakdownResults) *validator.TaskDelegationResults {
+	return validator.StartCollaborativeTaskDelegation(chainID, taskBreakdown)
+}
+
+// NotifyAssignedValidators notifies validators of their assigned tasks
+func NotifyAssignedValidators(chainID string, delegationResults *validator.TaskDelegationResults) {
+	validator.NotifyAssignedValidators(chainID, delegationResults)
+}
+
+// GetValidatorBalance returns the current balance for a validator
+func GetValidatorBalance(c *gin.Context) {
+	chainID := c.GetString("chainID")
+	agentID := c.Param("agentID")
+
+	// Check if validator exists
+	validator := validator.GetValidatorByID(chainID, agentID)
+	if validator == nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Validator not found"})
+		return
+	}
+
+	// Get chain funds
+	chainFunds := core.GetChainFunds(chainID)
+	if chainFunds == nil {
+		// If not initialized yet, return zero balance
+		c.JSON(http.StatusOK, gin.H{
+			"validator_id": agentID,
+			"name":         validator.Name,
+			"balance":      0.0,
+		})
+		return
+	}
+
+	// Get validator balance
+	balance := chainFunds.GetBalance(agentID)
+
+	c.JSON(http.StatusOK, gin.H{
+		"validator_id": agentID,
+		"name":         validator.Name,
+		"balance":      balance,
+	})
 }
