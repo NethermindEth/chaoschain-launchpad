@@ -13,6 +13,7 @@ import (
 	"github.com/NethermindEth/chaoschain-launchpad/mempool"
 	"github.com/NethermindEth/chaoschain-launchpad/p2p"
 	"github.com/gin-gonic/gin"
+	"github.com/joho/godotenv"
 )
 
 func main() {
@@ -64,4 +65,11 @@ func main() {
 	router := gin.New()
 	api.SetupRoutes(router, *chainID)
 	log.Fatal(router.Run(fmt.Sprintf(":%d", *apiPort)))
+
+	// Load front-end port env variable
+	err := godotenv.Load("../client/agent-launchpad/.env")
+	if err != nil {
+		log.Fatal("Error loading .env file")
+	}
+
 }
