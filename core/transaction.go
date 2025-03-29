@@ -6,11 +6,13 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 )
 
 // Transaction represents a basic transaction structure
 type Transaction struct {
+	Type      string  `json:"type" amino:"bytes"` // Transaction type (e.g., "register_validator")
 	From      string  `json:"from" amino:"bytes"`
 	To        string  `json:"to" amino:"bytes"`
 	Amount    float64 `json:"amount" amino:"fixed64"`
@@ -20,8 +22,8 @@ type Transaction struct {
 	Signature string  `json:"signature" amino:"bytes"`
 	PublicKey string  `json:"publicKey" amino:"bytes"`
 	ChainID   string  `json:"chainID" amino:"bytes"`
-	Hash      []byte  `json:"-" amino:"bytes"` // Transaction hash
-	Data      []byte  `json:"-" amino:"bytes"`
+	Hash      []byte  `json:"hash" amino:"bytes"` // Transaction hash
+	Data      []byte  `json:"data" amino:"bytes"`
 }
 
 // GenerateKeyPair creates a new key pair for signing transactions
@@ -71,6 +73,10 @@ func (tx *Transaction) GetHash() []byte {
 }
 
 func (tx *Transaction) Marshal() ([]byte, error) {
-	// For now, just return the Data field which should be CometBFT compatible
-	return tx.Data, nil
+	// Properly marshal the transaction to JSON
+	jsonBytes, err := json.Marshal(tx)
+	if err != nil {
+		return nil, err
+	}
+	return jsonBytes, nil
 }

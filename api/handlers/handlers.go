@@ -17,6 +17,7 @@ import (
 
 	"github.com/NethermindEth/chaoschain-launchpad/ai"
 	"github.com/NethermindEth/chaoschain-launchpad/cmd/node"
+
 	"github.com/NethermindEth/chaoschain-launchpad/communication"
 	"github.com/NethermindEth/chaoschain-launchpad/core"
 	da "github.com/NethermindEth/chaoschain-launchpad/da_layer"
@@ -46,12 +47,14 @@ func RegisterAgent(c *gin.Context) {
 
 	// Just set up the data directory path
 	dataDir := fmt.Sprintf("./data/%s/%s", chainID, agent.ID)
+	// genesisDataDir := fmt.Sprintf("./data/%s/genesis", chainID)
 
 	// Assign specific ports based on agent ID
 	basePort := 26656
 	agentIDInt := int(crc32.ChecksumIEEE([]byte(agent.ID)))
 	p2pPort := basePort + (agentIDInt % 10000)
 	rpcPort := p2pPort + 1
+	apiPort := p2pPort + 2
 
 	if p2pPort == 26656 || rpcPort == 26657 {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Agent port conflicts with Genesis node"})
@@ -100,6 +103,8 @@ func RegisterAgent(c *gin.Context) {
 	// Create seed node string
 	seedNode := fmt.Sprintf("%s@127.0.0.1:26656", genesisNodeKey.ID())
 
+	log.Printf("This is the seed node with seed node %s", seedNode)
+
 	// Create and start the node
 	cmd := exec.Command(
 		"./chaos-agent", // compiled agent binary
@@ -107,8 +112,9 @@ func RegisterAgent(c *gin.Context) {
 		"--agent-id", agent.ID,
 		"--p2p-port", fmt.Sprintf("%d", p2pPort),
 		"--rpc-port", fmt.Sprintf("%d", rpcPort),
-		"--seed", seedNode,
-		"--validator", fmt.Sprintf("%t", agent.Role == "validator"), // Only validators get validation power
+		"--genesis-node-id", seedNode,
+		"--role", agent.Role, // Use the role flag with the agent's role value
+		"--api-port", fmt.Sprintf("%d", apiPort),
 	)
 
 	cmd.Stdout = os.Stdout
@@ -142,22 +148,62 @@ func RegisterAgent(c *gin.Context) {
 	}
 
 	// If this is a validator, register it with the consensus engine
-	if agent.Role == "validator" {
-		// Connect to the genesis node to register this validator
-		_, err := rpchttp.New("tcp://localhost:26657", "/websocket")
-		if err == nil {
-			// Submit a transaction to register the validator
-			// This would typically involve creating a transaction that your ABCI app recognizes
-			// as a validator registration transaction
-			// For now, we'll just log it
-			log.Printf("Registered new validator: %s", agent.ID)
-		}
-	}
+	// if agent.Role == "validator" {
+
+	// 	client, err := rpchttp.New("tcp://localhost:26657", "/websocket") // Use genesis node's RPC port
+	// 	if err == nil {
+	// 		// Load the validator's public key
+	// 		privValKeyFile := fmt.Sprintf("%s/config/priv_validator_key.json", genesisDataDir)
+	// 		if fileExists(privValKeyFile) {
+	// 			privVal := privval.LoadFilePV(privValKeyFile, fmt.Sprintf("%s/data/priv_validator_state.json", genesisDataDir))
+	// 			pubKey, err := privVal.GetPubKey()
+	// 			if err != nil {
+	// 				log.Printf("Failed to get validator public key: %v", err)
+	// 			} else {
+	// 				// Create a transaction to register the validator
+	// 				validatorTx := core.Transaction{
+	// 					Type:      "register_validator",
+	// 					From:      agent.ID,
+	// 					Data:      pubKey.Bytes(),
+	// 					Timestamp: time.Now().Unix(),
+	// 					ChainID:   chainID, // Make sure to set the chain ID
+	// 				}
+
+	// 				// Log the transaction details
+	// 				log.Printf("Creating validator registration transaction: %+v", validatorTx)
+	// 				log.Printf("Validator public key: %X", pubKey.Bytes())
+	// 				log.Printf("Validator address: %X", pubKey.Address())
+
+	// 				// Marshal the transaction
+	// 				txBytes, err := validatorTx.Marshal()
+	// 				if err != nil {
+	// 					log.Printf("Failed to marshal validator registration tx: %v", err)
+	// 				} else {
+	// 					log.Printf("Marshaled transaction length: %d bytes", len(txBytes))
+
+	// 					// Broadcast the transaction to register the validator FROM THE GENESIS NODE
+	// 					result, err := client.BroadcastTxCommit(context.Background(), txBytes)
+	// 					if err != nil {
+	// 						log.Printf("Failed to broadcast validator registration tx: %v", err)
+	// 						c.JSON(http.StatusInternalServerError, gin.H{
+	// 							"error": fmt.Sprintf("Failed to broadcast validator registration tx: %v", err),
+	// 						})
+	// 						return
+	// 					} else {
+	// 						log.Printf("Registered new validator: %s, tx hash: %s, code: %d, log: %s",
+	// 							agent.ID, result.Hash.String(), result.DeliverTx.Code, result.DeliverTx.Log)
+	// 					}
+	// 				}
+	// 			}
+	// 		}
+	// 	}
+	// }
 
 	RegisterNode(chainID, agent.ID, NodeInfo{
 		IsGenesis: false,
 		P2PPort:   p2pPort,
 		RPCPort:   rpcPort,
+		APIPort:   apiPort,
 	})
 
 	communication.BroadcastEvent(communication.EventAgentRegistered, agent)
@@ -167,6 +213,7 @@ func RegisterAgent(c *gin.Context) {
 		"agentID": agent.ID,
 		"p2pPort": p2pPort,
 		"rpcPort": rpcPort,
+		"apiPort": apiPort,
 	})
 }
 
@@ -798,4 +845,65 @@ func ListBlockDiscussions(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"blocks": blocks})
+}
+
+// Add validator directly to genesis file
+func AddValidatorToGenesis(chainID string, agent core.Agent) bool {
+
+	// Set up data directory paths
+	dataDir := fmt.Sprintf("./data/%s/%s", chainID, agent.ID)
+	genesisFile := fmt.Sprintf("./data/%s/genesis/config/genesis.json", chainID)
+
+	// Create required directories
+	if err := os.MkdirAll(dataDir+"/config", 0755); err != nil {
+		return false
+	}
+	if err := os.MkdirAll(dataDir+"/data", 0755); err != nil {
+		return false
+	}
+
+	// Generate validator key
+	privValKeyFile := fmt.Sprintf("%s/config/priv_validator_key.json", dataDir)
+	privValStateFile := fmt.Sprintf("%s/data/priv_validator_state.json", dataDir)
+	privVal := privval.GenFilePV(privValKeyFile, privValStateFile)
+	pubKey, _ := privVal.GetPubKey()
+
+	// Read genesis file
+	genesisBytes, err := os.ReadFile(genesisFile)
+	if err != nil {
+		return false
+	}
+
+	// Parse genesis file
+	var genDoc types.GenesisDoc
+	if err := json.Unmarshal(genesisBytes, &genDoc); err != nil {
+		return false
+	}
+
+	// Add validator to genesis
+	validator := types.GenesisValidator{
+		Address: pubKey.Address(),
+		PubKey:  pubKey,
+		Power:   10,
+		Name:    agent.ID,
+	}
+	genDoc.Validators = append(genDoc.Validators, validator)
+
+	// Write updated genesis file
+	updatedGenesisBytes, err := json.MarshalIndent(genDoc, "", "  ")
+	if err != nil {
+		return false
+	}
+
+	if err := os.WriteFile(genesisFile, updatedGenesisBytes, 0644); err != nil {
+		return false
+	}
+
+	// Copy updated genesis to new node
+	newGenesisFile := fmt.Sprintf("%s/config/genesis.json", dataDir)
+	if err := os.WriteFile(newGenesisFile, updatedGenesisBytes, 0644); err != nil {
+		return false
+	}
+
+	return true
 }

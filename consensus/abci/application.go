@@ -11,15 +11,16 @@ import (
 	"github.com/NethermindEth/chaoschain-launchpad/validator"
 	types "github.com/cometbft/cometbft/abci/types"
 	"github.com/cometbft/cometbft/crypto"
+	"github.com/cometbft/cometbft/crypto/ed25519"
 	tmproto "github.com/cometbft/cometbft/proto/tendermint/types"
 )
 
 type Application struct {
-	chainID string
-	mu      sync.RWMutex
-	// Track discussion results for each transaction
-	discussions map[string]map[string]bool // txHash -> validatorID -> support
-	validators  []types.ValidatorUpdate    // Current validator set
+	chainID           string
+	mu                sync.RWMutex
+	discussions       map[string]map[string]bool
+	validators        []types.ValidatorUpdate // Persistent validator set
+	pendingValUpdates []types.ValidatorUpdate // Diffs to return in EndBlock
 }
 
 func NewApplication(chainID string) types.Application {
@@ -90,7 +91,48 @@ func (app *Application) CheckTx(req types.RequestCheckTx) types.ResponseCheckTx 
 }
 
 func (app *Application) DeliverTx(req types.RequestDeliverTx) types.ResponseDeliverTx {
-	return types.ResponseDeliverTx{Code: 0}
+	log.Printf("DeliverTx received: %X", req.Tx)
+
+	// Decode transaction
+	var tx core.Transaction
+	if err := json.Unmarshal(req.Tx, &tx); err != nil {
+		log.Printf("Failed to unmarshal transaction: %v", err)
+		return types.ResponseDeliverTx{
+			Code: 1,
+			Log:  fmt.Sprintf("Invalid transaction format: %v", err),
+		}
+	}
+
+	log.Printf("Processing transaction: %+v", tx)
+
+	// Handle different transaction types
+	switch tx.Type {
+	case "register_validator":
+		// This is a validator registration transaction
+		if len(tx.Data) == 0 {
+			return types.ResponseDeliverTx{
+				Code: 1,
+				Log:  "Missing validator public key",
+			}
+		}
+
+		// Create public key from bytes
+		pubKey := ed25519.PubKey(tx.Data)
+
+		// Register the validator with voting power
+		app.RegisterValidator(pubKey, 100) // Give it some voting power
+
+		log.Printf("Registered validator %s with pubkey %X", tx.From, tx.Data)
+
+		return types.ResponseDeliverTx{
+			Code: 0,
+			Log:  fmt.Sprintf("Validator %s registered successfully", tx.From),
+		}
+
+	default:
+		// Handle other transaction types
+		return types.ResponseDeliverTx{Code: 0}
+	}
 }
 
 func (app *Application) BeginBlock(req types.RequestBeginBlock) types.ResponseBeginBlock {
@@ -98,19 +140,25 @@ func (app *Application) BeginBlock(req types.RequestBeginBlock) types.ResponseBe
 }
 
 func (app *Application) EndBlock(req types.RequestEndBlock) types.ResponseEndBlock {
-	// Genesis block is height 1
-	if req.Height == 1 {
-		log.Printf("EndBlock at height 1 - explicitly returning validators")
+	app.mu.Lock()
+	defer app.mu.Unlock()
 
-		// Return the validators we already have from InitChain
-		log.Printf("Returning %d validators at height 1", len(app.validators))
-		return types.ResponseEndBlock{
-			ValidatorUpdates: app.validators,
-		}
+	log.Printf("EndBlock at height %d — %d new validator updates", req.Height, len(app.pendingValUpdates))
+
+	// Log each validator update in detail
+	for i, update := range app.pendingValUpdates {
+		log.Printf("Validator update %d: pubkey=%X, power=%d",
+			i, update.PubKey.GetEd25519(), update.Power)
 	}
 
+	updates := app.pendingValUpdates
+	app.pendingValUpdates = nil // Clear for next block
+
+	// Log the response we're returning
+	log.Printf("Returning %d validator updates in EndBlock response", len(updates))
+
 	return types.ResponseEndBlock{
-		ValidatorUpdates: app.validators,
+		ValidatorUpdates: updates,
 	}
 }
 
@@ -138,6 +186,8 @@ func (app *Application) ApplySnapshotChunk(req types.RequestApplySnapshotChunk) 
 func (app *Application) PrepareProposal(req types.RequestPrepareProposal) types.ResponsePrepareProposal {
 	// TODO: Implement PrepareProposal
 
+	log.Printf("PrepareProposal called with %d transactions", len(req.Txs))
+
 	app.mu.Lock()
 	defer app.mu.Unlock()
 
@@ -148,6 +198,15 @@ func (app *Application) PrepareProposal(req types.RequestPrepareProposal) types.
 		if err := json.Unmarshal(tx, &transaction); err != nil {
 			continue
 		}
+
+		// Always include validator registration txs
+		if transaction.Type == "register_validator" {
+			log.Printf("Including validator registration tx from %s", transaction.From)
+			validTxs = append(validTxs, tx)
+			continue
+		}
+
+		log.Printf("PrepareProposal including %d txs", len(validTxs))
 
 		// Get social validator info
 		proposer := validator.GetSocialValidator(app.chainID, fmt.Sprintf("%X", req.ProposerAddress))
@@ -163,14 +222,14 @@ func (app *Application) PrepareProposal(req types.RequestPrepareProposal) types.
 
 		// AI agent (proposer) evaluates transaction based on relationships
 		support := true // Default support
-		for _, relatedValidator := range validator.GetAllValidators(app.chainID) {
-			relationship := proposer.Relationships[relatedValidator.ID]
-			// If strongly influenced by a validator, consider their opinion
-			if relationship > 0.7 || relationship < -0.7 {
-				// Simulate related validator's opinion based on relationship
-				app.discussions[txHash][relatedValidator.ID] = relationship > 0
-			}
-		}
+		// for _, relatedValidator := range validator.GetAllValidators(app.chainID) {
+		// 	relationship := proposer.Relationships[relatedValidator.ID]
+		// 	// If strongly influenced by a validator, consider their opinion
+		// 	if relationship > 0.7 || relationship < -0.7 {
+		// 		// Simulate related validator's opinion based on relationship
+		// 		app.discussions[txHash][relatedValidator.ID] = relationship > 0
+		// 	}
+		// }
 
 		// Record proposer's decision
 		app.discussions[txHash][proposer.ID] = support
@@ -189,28 +248,7 @@ func (app *Application) ProcessProposal(req types.RequestProcessProposal) types.
 	app.mu.Lock()
 	defer app.mu.Unlock()
 
-	validator := validator.GetSocialValidator(app.chainID, fmt.Sprintf("%X", req.ProposerAddress))
-	if validator == nil {
-		return types.ResponseProcessProposal{Status: types.ResponseProcessProposal_REJECT}
-	}
-
-	// Evaluate each transaction in the proposal
-	for _, tx := range req.Txs {
-		txHash := fmt.Sprintf("%x", tx)
-
-		// Initialize discussion for this tx if not exists
-		if _, exists := app.discussions[txHash]; !exists {
-			app.discussions[txHash] = make(map[string]bool)
-		}
-
-		// Consider relationship with proposer
-		relationship := validator.Relationships[fmt.Sprintf("%X", req.ProposerAddress)]
-		if relationship < -0.5 {
-			// Strongly negative relationship might lead to rejection
-			return types.ResponseProcessProposal{Status: types.ResponseProcessProposal_REJECT}
-		}
-	}
-
+	// Always accept proposals during development
 	return types.ResponseProcessProposal{Status: types.ResponseProcessProposal_ACCEPT}
 }
 
@@ -221,15 +259,23 @@ func (app *Application) RegisterValidator(pubKey crypto.PubKey, power int64) {
 
 	valUpdate := types.Ed25519ValidatorUpdate(pubKey.Bytes(), power)
 
+	// Log the validator being registered
+	log.Printf("Registering validator with address: %X, power: %d", pubKey.Address(), power)
+
 	// Check if validator already exists
-	for i, val := range app.validators {
+	for _, val := range app.validators {
 		if bytes.Equal(val.PubKey.GetEd25519(), pubKey.Bytes()) {
-			// Update existing validator
-			app.validators[i] = valUpdate
+			// Already exists, no update needed
+			log.Printf("Validator already exists, not adding again")
 			return
 		}
 	}
 
-	// Add new validator
+	// Add to persistent set
 	app.validators = append(app.validators, valUpdate)
+	log.Printf("Added validator to persistent set, now have %d validators", len(app.validators))
+
+	// Also include in the updates for EndBlock
+	app.pendingValUpdates = append(app.pendingValUpdates, valUpdate)
+	log.Printf("Added validator to pending updates, now have %d pending updates", len(app.pendingValUpdates))
 }

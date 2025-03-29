@@ -9,6 +9,7 @@ type NodeInfo struct {
 	IsGenesis bool
 	RPCPort   int
 	P2PPort   int
+	APIPort   int
 }
 
 var (

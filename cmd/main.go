@@ -38,6 +38,9 @@ func main() {
 	// before creating data directory, check if it exists and delete it
 	if _, err := os.Stat(fmt.Sprintf("./data/%s", *chainID)); err == nil {
 		os.RemoveAll(fmt.Sprintf("./data/%s", *chainID))
+		os.Remove("./config/addrbook.json")
+		// Also remove any other persistent state files
+		os.RemoveAll("./config/priv_validator_state.json")
 	}
 
 	// Create data directory for the chain
@@ -144,7 +147,7 @@ func main() {
 	config.P2P.MaxNumInboundPeers = 40
 	config.P2P.MaxNumOutboundPeers = 10
 
-	config.P2P.SeedMode = true // Only helps discover peers, doesn’t try to dial anyone
+	config.P2P.SeedMode = true // Only helps discover peers, doesn't try to dial anyone
 	config.P2P.PexReactor = true
 
 	genesisNode, err := node.NewNode(config, *chainID)
@@ -161,14 +164,15 @@ func main() {
 		IsGenesis: true,
 		RPCPort:   *rpcPort,
 		P2PPort:   *p2pPort,
+		APIPort:   *apiPort,
 	})
 
 	// Start NATS messaging
 	core.SetupNATS(*nats)
 	defer core.CloseNATS()
 
-	log.Printf("Genesis node for chain %s started with P2P port %d and RPC port %d",
-		*chainID, *p2pPort, *rpcPort)
+	log.Printf("Genesis node for chain %s started with P2P port %d, RPC port %d, and API port %d",
+		*chainID, *p2pPort, *rpcPort, *apiPort)
 
 	// Start API server
 	router := gin.New()
